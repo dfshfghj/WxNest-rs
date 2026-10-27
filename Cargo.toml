@@ -28,6 +28,14 @@ tempfile = "3"
 ureq = "2.12"
 url = "2.5"
 
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "symbols"
+incremental = false
+
 [profile.dev.package.wechat-core]
 opt-level = 3
 

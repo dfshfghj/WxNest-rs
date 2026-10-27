@@ -1,0 +1,208 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_TIMEOUT: "120"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  test:
+    name: Windows test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1
+          shared-key: windows-test
+          key: ${{ hashFiles('Cargo.toml', 'crates/*/Cargo.toml') }}
+          cache-on-failure: true
+          save-if: ${{ github.ref_name == github.event.repository.default_branch }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check --config reorder_imports=false,reorder_modules=false
+
+      - name: Clippy workspace
+        run: cargo clippy --locked --workspace --exclude wce-self-broker --all-targets -- -D warnings
+
+      - name: Clippy broker
+        run: cargo clippy --locked -p wce-self-broker --no-default-features --features plain-sqlite --all-targets -- -D warnings
+
+      - name: Test workspace
+        run: cargo test --locked --workspace --exclude wce-self-broker
+
+  release:
+    name: Windows release
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.99.1
+
+      - name: Prepare OpenSSL toolchain
+        shell: pwsh
+        run: |
+          $perlDir = 'C:\Strawberry\perl\bin'
+          if (!(Test-Path (Join-Path $perlDir 'perl.exe'))) {
+            choco install strawberryperl -y --no-progress
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $perlDir
+          Add-Content -Path $env:GITHUB_PATH -Value 'C:\Strawberry\c\bin'
+          if (!(Get-Command nasm -ErrorAction SilentlyContinue)) {
+            choco install nasm -y --no-progress
+          }
+          $nasmDir = 'C:\Program Files\NASM'
+          if (Test-Path (Join-Path $nasmDir 'nasm.exe')) {
+            Add-Content -Path $env:GITHUB_PATH -Value $nasmDir
+          }
+
+      - name: Verify OpenSSL toolchain
+        shell: pwsh
+        run: |
+          perl -v
+          nasm -v
+          Get-Command cl, nmake -ErrorAction Stop | Select-Object Name, Source
+
+      - name: Restore Rust and OpenSSL build cache
+        id: rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1
+          shared-key: windows-release
+          key: ${{ hashFiles('Cargo.toml', 'crates/*/Cargo.toml') }}
+          cache-on-failure: true
+          save-if: ${{ github.ref_name == github.event.repository.default_branch }}
+
+      - name: Resolve OpenSSL source version
+        id: openssl
+        shell: pwsh
+        run: |
+          $lock = Get-Content 'Cargo.lock' -Raw
+          if ($lock -notmatch 'name = "openssl-src"\s+version = "([^"]+)"') {
+            throw 'openssl-src not found in Cargo.lock'
+          }
+          $version = $Matches[1] -replace '\+', '_'
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Restore OpenSSL build cache
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        id: openssl-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            target/release/build/openssl-sys-*
+            target/release/.fingerprint/openssl-sys-*
+          key: openssl-${{ steps.openssl.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-v1
+
+      - name: Build release
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\Strawberry\perl\bin;C:\Strawberry\c\bin;C:\Program Files\NASM;$env:PATH"
+          perl -v | Select-Object -First 1
+          nasm -v
+          cargo build --locked --release --workspace
+
+      - name: Save OpenSSL build cache
+        if: steps.rust-cache.outputs.cache-hit != 'true' && steps.openssl-cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            target/release/build/openssl-sys-*
+            target/release/.fingerprint/openssl-sys-*
+          key: openssl-${{ steps.openssl.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-v1
+
+      - name: Verify binaries
+        shell: pwsh
+        run: |
+          foreach ($name in @('wechat-ui.exe', 'wce-self-broker.exe')) {
+            $path = Join-Path 'target\release' $name
+            if (!(Test-Path -LiteralPath $path)) {
+              throw "missing $path"
+            }
+            Get-Item -LiteralPath $path | Select-Object FullName, Length
+          }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dist = 'dist\wechat-analysis-rs-windows-x86_64'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item 'target\release\wechat-ui.exe' $dist
+          Copy-Item 'target\release\wce-self-broker.exe' $dist
+          Copy-Item 'README.md' $dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wechat-analysis-rs-windows-x86_64
+          path: dist/wechat-analysis-rs-windows-x86_64
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wechat-analysis-rs-windows-x86_64
+          path: dist/wechat-analysis-rs-windows-x86_64
+
+      - name: Package archive
+        shell: bash
+        run: |
+          cd dist
+          zip -r wechat-analysis-rs-windows-x86_64.zip wechat-analysis-rs-windows-x86_64
+          sha256sum wechat-analysis-rs-windows-x86_64.zip > SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            dist/wechat-analysis-rs-windows-x86_64.zip
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
