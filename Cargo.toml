@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/wechat-core",
+    "crates/wechat-data",
+    "crates/wechat-broker",
+    "crates/wechat-key-scan",
+    "crates/wechat-self-broker",
+    "crates/wechat-ui",
+]
+
+[workspace.dependencies]
+gpui-kit = "=0.7.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+md-5 = "0.10"
+zstd = "0.13"
+base64 = "0.22"
+html-escape = "0.2"
+regex = "1"
+roxmltree = "0.21"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+tempfile = "3"
+ureq = "2.12"
+url = "2.5"
+
+[profile.dev.package.wechat-core]
+opt-level = 3
+
+[profile.dev.package.wechat-key-scan]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.hmac]
+opt-level = 3
+
+[profile.dev.package.pbkdf2]
+opt-level = 3

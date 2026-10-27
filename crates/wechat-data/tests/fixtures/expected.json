@@ -1,0 +1,1815 @@
+{
+  "account": {
+    "account": "wxid_self0001",
+    "message_shards": [
+      "message_0.db",
+      "message_1.db"
+    ],
+    "self_username": "wxid_self0001"
+  },
+  "contacts": [
+    {
+      "alias": "",
+      "big_head_url": "http://example.com/group.jpg",
+      "display_name": "开发群",
+      "is_group": true,
+      "is_official": false,
+      "nick_name": "群聊",
+      "remark": "开发群",
+      "small_head_url": null,
+      "username": "123456@chatroom"
+    },
+    {
+      "alias": "",
+      "big_head_url": null,
+      "display_name": "文件传输助手",
+      "is_group": false,
+      "is_official": false,
+      "nick_name": "",
+      "remark": "文件传输助手",
+      "small_head_url": null,
+      "username": "filehelper"
+    },
+    {
+      "alias": "",
+      "big_head_url": "http://example.com/official.jpg",
+      "display_name": "官方号",
+      "is_group": false,
+      "is_official": true,
+      "nick_name": "官方号",
+      "remark": "",
+      "small_head_url": null,
+      "username": "gh_official001"
+    },
+    {
+      "alias": "zhangsan",
+      "big_head_url": "http://example.com/zhang.jpg",
+      "display_name": "张三",
+      "is_group": false,
+      "is_official": false,
+      "nick_name": "ZS",
+      "remark": "张三",
+      "small_head_url": null,
+      "username": "wxid_friend01"
+    },
+    {
+      "alias": "",
+      "big_head_url": null,
+      "display_name": "李四",
+      "is_group": false,
+      "is_official": false,
+      "nick_name": "李四",
+      "remark": "",
+      "small_head_url": "https://example.com/li.jpg",
+      "username": "wxid_friend02"
+    },
+    {
+      "alias": "",
+      "big_head_url": null,
+      "display_name": "隐藏联系人",
+      "is_group": false,
+      "is_official": false,
+      "nick_name": "隐藏联系人",
+      "remark": "",
+      "small_head_url": null,
+      "username": "wxid_hidden01"
+    },
+    {
+      "alias": "",
+      "big_head_url": null,
+      "display_name": "陌生人备注",
+      "is_group": false,
+      "is_official": false,
+      "nick_name": "陌生",
+      "remark": "陌生人备注",
+      "small_head_url": null,
+      "username": "wxid_stranger01"
+    }
+  ],
+  "counts": {
+    "123456@chatroom": 3,
+    "wxid_friend01": 22,
+    "wxid_friend02": 3,
+    "wxid_missing": 0
+  },
+  "group_nicknames": {
+    "wxid_groupmember": "群昵称甲",
+    "wxid_self0001": "我自己",
+    "wxid_stranger01": "陌生人昵称"
+  },
+  "media_md5_blob": {
+    "dat": {
+      "expected": "0123456789abcdef0123456789abcdef",
+      "input_hex": "66696c653d30313233343536373839616263646566303132333435363738396162636465665f742e646174206f746865723d6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "empty": {
+      "expected": "",
+      "input_hex": ""
+    },
+    "plain": {
+      "expected": "ffffffffffffffffffffffffffffffff",
+      "input_hex": "666666666666666666666666666666666666666666666666666666666666666620616e64203031323334353637383961626364656630313233343536373839616263646566"
+    }
+  },
+  "media_md5_packed": [
+    {
+      "expected": "0123456789abcdef0123456789abcdef",
+      "input_hex": "66696c653d30313233343536373839616263646566303132333435363738396162636465665f742e646174206f746865723d6666666666666666666666666666666666666666666666666666666666666666",
+      "type": "blob"
+    },
+    {
+      "expected": "000102030405060708090a0b0c0d0e0f",
+      "input_hex": "000102030405060708090a0b0c0d0e0f",
+      "type": "blob"
+    },
+    {
+      "expected": "000102030405060708090a0b0c0d0e0f",
+      "input": "0x000102030405060708090a0b0c0d0e0f",
+      "type": "text"
+    },
+    {
+      "expected": "0123456789abcdef0123456789abcdef",
+      "input": "token 0123456789abcdef0123456789abcdef",
+      "type": "text"
+    },
+    {
+      "expected": "",
+      "input": 12345,
+      "type": "int"
+    }
+  ],
+  "media_paths": {
+    "emoji:cccccccccccccccccccccccccccccccc": "cache/emoji/cccccccccccccccccccccccccccccccc.png",
+    "emoji:cccccccccccccccccccccccccccccccd": "cache/emoji/cccccccccccccccccccccccccccccccd_h.png",
+    "file:ffffffffffffffffffffffffffffffff": "msg/file/ffffffffffffffffffffffffffffffff.pdf",
+    "image:11111111111111111111111111111111": null,
+    "image:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "msg/attach/84c495fc4279ef9e04dc45b1c31b6fab/2024-01/img/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_t.dat",
+    "image:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "resource/bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+    "video:dddddddddddddddddddddddddddddddd": "msg/video/dddddddddddddddddddddddddddddddd.mp4",
+    "video_thumb:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "resource/bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+    "video_thumb:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee": "msg/video/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee_thumb.jpg"
+  },
+  "messages": {
+    "123456@chatroom": {
+      "all": [
+        {
+          "content": "群消息一",
+          "create_time": 1700000120,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 1,
+          "local_type": 1,
+          "sender_display_name": "群昵称甲",
+          "sender_username": "wxid_groupmember",
+          "server_id": 3001,
+          "shard": "message_0.db",
+          "sort_seq": 1,
+          "table": "msg_f6f0bf22241823498511bc2aed2cebb7"
+        },
+        {
+          "body": {
+            "content": "[应用消息]",
+            "renderType": "text"
+          },
+          "content": "<msg><appmsg>群链接</appmsg></msg>",
+          "create_time": 1700000220,
+          "is_sent": true,
+          "kind": "app",
+          "local_id": 2,
+          "local_type": 49,
+          "sender_display_name": "我自己",
+          "sender_username": "wxid_self0001",
+          "server_id": 3002,
+          "shard": "message_0.db",
+          "sort_seq": 2,
+          "table": "msg_f6f0bf22241823498511bc2aed2cebb7"
+        },
+        {
+          "content": "陌生人发言",
+          "create_time": 1700000320,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 3,
+          "local_type": 1,
+          "sender_display_name": "陌生人昵称",
+          "sender_username": "wxid_stranger01",
+          "server_id": 3003,
+          "shard": "message_0.db",
+          "sort_seq": 3,
+          "table": "msg_f6f0bf22241823498511bc2aed2cebb7"
+        }
+      ]
+    },
+    "wxid_friend01": {
+      "all": [
+        {
+          "content": "第一条消息",
+          "create_time": 1700000100,
+          "is_sent": true,
+          "kind": "text",
+          "local_id": 1,
+          "local_type": 1,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 1001,
+          "shard": "message_0.db",
+          "sort_seq": 1,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "a &amp; b",
+          "create_time": 1700000200,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 2,
+          "local_type": 1,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1002,
+          "shard": "message_0.db",
+          "sort_seq": 2,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "跨库消息",
+          "create_time": 1700000250,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 1,
+          "local_type": 1,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 2001,
+          "shard": "message_1.db",
+          "sort_seq": 1,
+          "table": "chat_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "[应用消息]",
+            "renderType": "text"
+          },
+          "content": "<msg><appmsg>link</appmsg></msg>",
+          "create_time": 1700000300,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 3,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1003,
+          "shard": "message_0.db",
+          "sort_seq": 3,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "[应用消息]",
+            "renderType": "text"
+          },
+          "content": "<msg><appmsg>compressed</appmsg></msg>",
+          "create_time": 1700000400,
+          "is_sent": true,
+          "kind": "app",
+          "local_id": 4,
+          "local_type": 49,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 1004,
+          "shard": "message_0.db",
+          "sort_seq": 4,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "<msg><img/></msg>",
+          "create_time": 1700000500,
+          "is_sent": false,
+          "kind": "image",
+          "local_id": 5,
+          "local_type": 3,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1005,
+          "shard": "message_0.db",
+          "sort_seq": 5,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "68656c6c6f",
+          "create_time": 1700000600,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 6,
+          "local_type": 1,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1006,
+          "shard": "message_0.db",
+          "sort_seq": 6,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "&lt;not xml&gt;",
+          "create_time": 1700000700,
+          "is_sent": true,
+          "kind": "text",
+          "local_id": 7,
+          "local_type": 1,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 1007,
+          "shard": "message_0.db",
+          "sort_seq": 7,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "shard1 同时刻",
+          "create_time": 1700000800,
+          "is_sent": true,
+          "kind": "text",
+          "local_id": 2,
+          "local_type": 1,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 2002,
+          "shard": "message_1.db",
+          "sort_seq": 8,
+          "table": "chat_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "content": "shard0 最后",
+          "create_time": 1700000800,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 8,
+          "local_type": 1,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1008,
+          "shard": "message_0.db",
+          "sort_seq": 8,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "人民广场",
+            "locationLabel": "上海市黄浦区人民广场",
+            "locationLat": 31.2304,
+            "locationLng": 121.4737,
+            "locationPoiname": "人民广场",
+            "renderType": "location"
+          },
+          "content": "<msg><location x=\"31.2304\" y=\"121.4737\" scale=\"16\" label=\"上海市黄浦区人民广场\" poiname=\"人民广场\" maptype=\"0\"/></msg>",
+          "create_time": 1700000900,
+          "is_sent": false,
+          "kind": "location",
+          "local_id": 9,
+          "local_type": 48,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1009,
+          "shard": "message_0.db",
+          "sort_seq": 9,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "回复的标题",
+            "quoteContent": "被引用的内容",
+            "quoteServerId": "999",
+            "quoteThumbUrl": "",
+            "quoteTitle": "张三",
+            "quoteType": "1",
+            "quoteUsername": "wxid_friend01",
+            "quoteVoiceLength": "",
+            "renderType": "quote"
+          },
+          "content": "<msg><appmsg appid=\"\" sdkver=\"0\"><title>回复的标题</title><type>57</type><refermsg><type>1</type><displayname>张三</displayname><fromusr>wxid_friend01</fromusr><svrid>999</svrid><content><![CDATA[被引用的内容]]></content></refermsg></appmsg></msg>",
+          "create_time": 1700001000,
+          "is_sent": false,
+          "kind": "quote",
+          "local_id": 10,
+          "local_type": 244813135921,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1010,
+          "shard": "message_0.db",
+          "sort_seq": 10,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "张三拍了拍我",
+            "renderType": "system"
+          },
+          "content": "<sysmsg type=\"patmsg\"><patmsg><template>${wxid_friend01}拍了拍${wxid_self0001}</template></patmsg></sysmsg>",
+          "create_time": 1700001100,
+          "is_sent": false,
+          "kind": "pat",
+          "local_id": 11,
+          "local_type": 266287972401,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1011,
+          "shard": "message_0.db",
+          "sort_seq": 11,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "\"张三\" 撤回了一条消息",
+            "renderType": "system"
+          },
+          "content": "<sysmsg type=\"revokemsg\"><revokemsg><session>wxid_friend01</session><newmsgid>123</newmsgid><replacemsg><![CDATA[\"张三\" 撤回了一条消息]]></replacemsg></revokemsg></sysmsg>",
+          "create_time": 1700001200,
+          "is_sent": false,
+          "kind": "system",
+          "local_id": 12,
+          "local_type": 10000,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1012,
+          "shard": "message_0.db",
+          "sort_seq": 12,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "[文件] 报告.pdf",
+            "fileMd5": "0123456789abcdef0123456789abcdef",
+            "renderType": "file",
+            "size": "2048",
+            "title": "报告.pdf"
+          },
+          "content": "<msg><appmsg><title>报告.pdf</title><type>6</type><totallen>2048</totallen><md5>0123456789abcdef0123456789abcdef</md5></appmsg></msg>",
+          "create_time": 1700001300,
+          "is_sent": true,
+          "kind": "app",
+          "local_id": 13,
+          "local_type": 49,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 1013,
+          "shard": "message_0.db",
+          "sort_seq": 13,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "三条消息",
+            "recordItem": "<recorditem><desc>记录摘要</desc>",
+            "renderType": "chatHistory",
+            "title": "聊天记录"
+          },
+          "content": "<msg><appmsg><title>聊天记录</title><des>三条消息</des><type>19</type><recorditem><![CDATA[<recorditem><desc>记录摘要</desc></recorditem>]]></recorditem></appmsg></msg>",
+          "create_time": 1700001400,
+          "is_sent": true,
+          "kind": "app",
+          "local_id": 14,
+          "local_type": 49,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 1014,
+          "shard": "message_0.db",
+          "sort_seq": 14,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "amount": "￥12.00",
+            "content": "午饭",
+            "invalidTime": "1700000000",
+            "paySubType": "1",
+            "receiveStatus": "0",
+            "receiverDes": "收款说明",
+            "receiverTitle": "来自张三的转账",
+            "renderType": "transfer",
+            "senderDes": "转账说明",
+            "senderTitle": "转账给张三",
+            "title": "￥12.00",
+            "transferId": "tid-1"
+          },
+          "content": "<msg><appmsg><title>转账</title><type>2000</type><wcpayinfo><feedesc>￥12.00</feedesc><pay_memo>午饭</pay_memo><paysubtype>1</paysubtype><receivestatus>0</receivestatus><sendertitle>转账给张三</sendertitle><receivertitle>来自张三的转账</receivertitle><senderdes>转账说明</senderdes><receiverdes>收款说明</receiverdes><transferid>tid-1</transferid><invalidtime>1700000000</invalidtime></wcpayinfo></appmsg></msg>",
+          "create_time": 1700001500,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 15,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1015,
+          "shard": "message_0.db",
+          "sort_seq": 15,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "恭喜发财",
+            "coverUrl": "https://example.com/cover.jpg",
+            "renderType": "redPacket",
+            "title": "大吉大利"
+          },
+          "content": "<msg><appmsg><title>红包</title><type>2001</type><wcpayinfo><sendertitle>恭喜发财</sendertitle><receivertitle>收到红包</receivertitle><senderdes>大吉大利</senderdes><receiverdes>谢谢</receiverdes><receiverc2cshowsourceurl>https://example.com/cover.jpg</receiverc2cshowsourceurl></wcpayinfo></appmsg></msg>",
+          "create_time": 1700001600,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 16,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1016,
+          "shard": "message_0.db",
+          "sort_seq": 16,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "小程序描述",
+            "from": "小程序名",
+            "fromUsername": "gh_mini",
+            "linkStyle": "default",
+            "linkType": "mini_program",
+            "renderType": "link",
+            "thumbUrl": "https://example.com/icon.png",
+            "title": "小程序标题",
+            "url": "https://example.com/mini"
+          },
+          "content": "<msg><appmsg><title>小程序标题</title><des>小程序描述</des><type>33</type><url>https://example.com/mini</url><weappinfo><username>gh_mini</username><nickname>小程序名</nickname><weappiconurl>https://example.com/icon.png</weappiconurl></weappinfo></appmsg></msg>",
+          "create_time": 1700001700,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 17,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1017,
+          "shard": "message_0.db",
+          "sort_seq": 17,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "视频号描述",
+            "from": "视频号名",
+            "fromUsername": "v2_finder",
+            "linkStyle": "finder",
+            "linkType": "finder",
+            "objectId": "oid-1",
+            "objectNonceId": "nonce-1",
+            "renderType": "link",
+            "thumbUrl": "https://example.com/finder.jpg",
+            "title": "视频号描述",
+            "url": ""
+          },
+          "content": "<msg><appmsg><title>当前版本不支持展示该内容，请升级至最新版本。</title><type>51</type><finderFeed><desc>视频号描述</desc><nickname>视频号名</nickname><username>v2_finder</username><objectid>oid-1</objectid><objectnonceid>nonce-1</objectnonceid><thumbUrl>https://example.com/finder.jpg</thumbUrl></finderFeed></appmsg></msg>",
+          "create_time": 1700001800,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 18,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1018,
+          "shard": "message_0.db",
+          "sort_seq": 18,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "歌手",
+            "from": "",
+            "fromUsername": "",
+            "linkStyle": "default",
+            "linkType": "music",
+            "renderType": "link",
+            "thumbUrl": "https://example.com/album.jpg",
+            "title": "歌曲名",
+            "url": "https://example.com/song"
+          },
+          "content": "<msg><appmsg><title>歌曲名</title><des>歌手</des><type>3</type><url>https://example.com/song</url><songalbumurl>https://example.com/album.jpg</songalbumurl></appmsg></msg>",
+          "create_time": 1700001900,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 19,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1019,
+          "shard": "message_0.db",
+          "sort_seq": 19,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        },
+        {
+          "body": {
+            "content": "仅标题",
+            "renderType": "text"
+          },
+          "content": "<msg><appmsg><title>仅标题</title><type>88</type></appmsg></msg>",
+          "create_time": 1700002000,
+          "is_sent": false,
+          "kind": "app",
+          "local_id": 20,
+          "local_type": 49,
+          "sender_display_name": "张三",
+          "sender_username": "wxid_friend01",
+          "server_id": 1020,
+          "shard": "message_0.db",
+          "sort_seq": 20,
+          "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+        }
+      ],
+      "page1": {
+        "has_more": true,
+        "messages": [
+          {
+            "body": {
+              "content": "视频号描述",
+              "from": "视频号名",
+              "fromUsername": "v2_finder",
+              "linkStyle": "finder",
+              "linkType": "finder",
+              "objectId": "oid-1",
+              "objectNonceId": "nonce-1",
+              "renderType": "link",
+              "thumbUrl": "https://example.com/finder.jpg",
+              "title": "视频号描述",
+              "url": ""
+            },
+            "content": "<msg><appmsg><title>当前版本不支持展示该内容，请升级至最新版本。</title><type>51</type><finderFeed><desc>视频号描述</desc><nickname>视频号名</nickname><username>v2_finder</username><objectid>oid-1</objectid><objectnonceid>nonce-1</objectnonceid><thumbUrl>https://example.com/finder.jpg</thumbUrl></finderFeed></appmsg></msg>",
+            "create_time": 1700001800,
+            "is_sent": false,
+            "kind": "app",
+            "local_id": 18,
+            "local_type": 49,
+            "sender_display_name": "张三",
+            "sender_username": "wxid_friend01",
+            "server_id": 1018,
+            "shard": "message_0.db",
+            "sort_seq": 18,
+            "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+          },
+          {
+            "body": {
+              "content": "歌手",
+              "from": "",
+              "fromUsername": "",
+              "linkStyle": "default",
+              "linkType": "music",
+              "renderType": "link",
+              "thumbUrl": "https://example.com/album.jpg",
+              "title": "歌曲名",
+              "url": "https://example.com/song"
+            },
+            "content": "<msg><appmsg><title>歌曲名</title><des>歌手</des><type>3</type><url>https://example.com/song</url><songalbumurl>https://example.com/album.jpg</songalbumurl></appmsg></msg>",
+            "create_time": 1700001900,
+            "is_sent": false,
+            "kind": "app",
+            "local_id": 19,
+            "local_type": 49,
+            "sender_display_name": "张三",
+            "sender_username": "wxid_friend01",
+            "server_id": 1019,
+            "shard": "message_0.db",
+            "sort_seq": 19,
+            "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+          },
+          {
+            "body": {
+              "content": "仅标题",
+              "renderType": "text"
+            },
+            "content": "<msg><appmsg><title>仅标题</title><type>88</type></appmsg></msg>",
+            "create_time": 1700002000,
+            "is_sent": false,
+            "kind": "app",
+            "local_id": 20,
+            "local_type": 49,
+            "sender_display_name": "张三",
+            "sender_username": "wxid_friend01",
+            "server_id": 1020,
+            "shard": "message_0.db",
+            "sort_seq": 20,
+            "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+          }
+        ],
+        "next_before": {
+          "create_time": 1700001800,
+          "local_id": 18,
+          "shard": "message_0.db",
+          "sort_seq": 18
+        }
+      },
+      "page2": {
+        "has_more": true,
+        "messages": [
+          {
+            "body": {
+              "amount": "￥12.00",
+              "content": "午饭",
+              "invalidTime": "1700000000",
+              "paySubType": "1",
+              "receiveStatus": "0",
+              "receiverDes": "收款说明",
+              "receiverTitle": "来自张三的转账",
+              "renderType": "transfer",
+              "senderDes": "转账说明",
+              "senderTitle": "转账给张三",
+              "title": "￥12.00",
+              "transferId": "tid-1"
+            },
+            "content": "<msg><appmsg><title>转账</title><type>2000</type><wcpayinfo><feedesc>￥12.00</feedesc><pay_memo>午饭</pay_memo><paysubtype>1</paysubtype><receivestatus>0</receivestatus><sendertitle>转账给张三</sendertitle><receivertitle>来自张三的转账</receivertitle><senderdes>转账说明</senderdes><receiverdes>收款说明</receiverdes><transferid>tid-1</transferid><invalidtime>1700000000</invalidtime></wcpayinfo></appmsg></msg>",
+            "create_time": 1700001500,
+            "is_sent": false,
+            "kind": "app",
+            "local_id": 15,
+            "local_type": 49,
+            "sender_display_name": "张三",
+            "sender_username": "wxid_friend01",
+            "server_id": 1015,
+            "shard": "message_0.db",
+            "sort_seq": 15,
+            "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+          },
+          {
+            "body": {
+              "content": "恭喜发财",
+              "coverUrl": "https://example.com/cover.jpg",
+              "renderType": "redPacket",
+              "title": "大吉大利"
+            },
+            "content": "<msg><appmsg><title>红包</title><type>2001</type><wcpayinfo><sendertitle>恭喜发财</sendertitle><receivertitle>收到红包</receivertitle><senderdes>大吉大利</senderdes><receiverdes>谢谢</receiverdes><receiverc2cshowsourceurl>https://example.com/cover.jpg</receiverc2cshowsourceurl></wcpayinfo></appmsg></msg>",
+            "create_time": 1700001600,
+            "is_sent": false,
+            "kind": "app",
+            "local_id": 16,
+            "local_type": 49,
+            "sender_display_name": "张三",
+            "sender_username": "wxid_friend01",
+            "server_id": 1016,
+            "shard": "message_0.db",
+            "sort_seq": 16,
+            "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+          },
+          {
+            "body": {
+              "content": "小程序描述",
+              "from": "小程序名",
+              "fromUsername": "gh_mini",
+              "linkStyle": "default",
+              "linkType": "mini_program",
+              "renderType": "link",
+              "thumbUrl": "https://example.com/icon.png",
+              "title": "小程序标题",
+              "url": "https://example.com/mini"
+            },
+            "content": "<msg><appmsg><title>小程序标题</title><des>小程序描述</des><type>33</type><url>https://example.com/mini</url><weappinfo><username>gh_mini</username><nickname>小程序名</nickname><weappiconurl>https://example.com/icon.png</weappiconurl></weappinfo></appmsg></msg>",
+            "create_time": 1700001700,
+            "is_sent": false,
+            "kind": "app",
+            "local_id": 17,
+            "local_type": 49,
+            "sender_display_name": "张三",
+            "sender_username": "wxid_friend01",
+            "server_id": 1017,
+            "shard": "message_0.db",
+            "sort_seq": 17,
+            "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab"
+          }
+        ],
+        "next_before": {
+          "create_time": 1700001500,
+          "local_id": 15,
+          "shard": "message_0.db",
+          "sort_seq": 15
+        }
+      }
+    },
+    "wxid_friend02": {
+      "all": [
+        {
+          "content": "无排序列一",
+          "create_time": 1700000150,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 1,
+          "local_type": 1,
+          "sender_display_name": "李四",
+          "sender_username": "wxid_friend02",
+          "server_id": 0,
+          "shard": "message_1.db",
+          "sort_seq": 0,
+          "table": "msg_f019301f33d0738b6ba7b5d5e1aa649a"
+        },
+        {
+          "content": "second minimal",
+          "create_time": 1700000350,
+          "is_sent": true,
+          "kind": "text",
+          "local_id": 2,
+          "local_type": 1,
+          "sender_display_name": "wxid_self0001",
+          "sender_username": "wxid_self0001",
+          "server_id": 0,
+          "shard": "message_1.db",
+          "sort_seq": 0,
+          "table": "msg_f019301f33d0738b6ba7b5d5e1aa649a"
+        },
+        {
+          "content": "same time minimal",
+          "create_time": 1700000350,
+          "is_sent": false,
+          "kind": "text",
+          "local_id": 3,
+          "local_type": 1,
+          "sender_display_name": "李四",
+          "sender_username": "wxid_friend02",
+          "server_id": 0,
+          "shard": "message_1.db",
+          "sort_seq": 0,
+          "table": "msg_f019301f33d0738b6ba7b5d5e1aa649a"
+        }
+      ]
+    }
+  },
+  "search": {
+    "message_count": 28,
+    "queries": [
+      {
+        "fts_query": "\"消 息\"",
+        "has_more": true,
+        "hits": [
+          {
+            "local_id": 14,
+            "payload": {
+              "amount": "",
+              "content": "三条消息",
+              "createTime": 1700001400,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:14",
+              "isSent": true,
+              "localId": 14,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "chatHistory",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1014,
+              "sortSeq": 14,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "聊天记录",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "chatHistory",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 12,
+            "payload": {
+              "amount": "",
+              "content": "\"张三\" 撤回了一条消息",
+              "createTime": 1700001200,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:12",
+              "isSent": false,
+              "localId": 12,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "system",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1012,
+              "sortSeq": 12,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 10000,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "system",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 4,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000400,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:4",
+              "isSent": true,
+              "localId": 4,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1004,
+              "sortSeq": 4,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 3,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000300,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:3",
+              "isSent": false,
+              "localId": 3,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1003,
+              "sortSeq": 3,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 1,
+            "payload": {
+              "amount": "",
+              "content": "跨库消息",
+              "createTime": 1700000250,
+              "db": "message_1",
+              "id": "message_1:chat_84c495fc4279ef9e04dc45b1c31b6fab:1",
+              "isSent": false,
+              "localId": 1,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_friend01",
+              "serverId": 2001,
+              "sortSeq": 1,
+              "source": "decrypted",
+              "table": "chat_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 1,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 5,
+          "q": "消息"
+        }
+      },
+      {
+        "fts_query": "\"张 三\"",
+        "has_more": false,
+        "hits": [
+          {
+            "local_id": 12,
+            "payload": {
+              "amount": "",
+              "content": "\"张三\" 撤回了一条消息",
+              "createTime": 1700001200,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:12",
+              "isSent": false,
+              "localId": 12,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "system",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1012,
+              "sortSeq": 12,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 10000,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "system",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 10,
+            "payload": {
+              "amount": "",
+              "content": "回复的标题",
+              "createTime": 1700001000,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:10",
+              "isSent": false,
+              "localId": 10,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "被引用的内容",
+              "quoteTitle": "张三",
+              "renderType": "quote",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1010,
+              "sortSeq": 10,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 244813135921,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "quote",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 5,
+          "q": "张三",
+          "username": "wxid_friend01"
+        }
+      },
+      {
+        "fts_query": "\"群\"",
+        "has_more": false,
+        "hits": [
+          {
+            "local_id": 1,
+            "payload": {
+              "amount": "",
+              "content": "群消息一",
+              "createTime": 1700000120,
+              "db": "message_0",
+              "id": "message_0:msg_f6f0bf22241823498511bc2aed2cebb7:1",
+              "isSent": false,
+              "localId": 1,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_groupmember",
+              "serverId": 3001,
+              "sortSeq": 1,
+              "source": "decrypted",
+              "table": "msg_f6f0bf22241823498511bc2aed2cebb7",
+              "title": "",
+              "type": 1,
+              "url": "",
+              "username": "123456@chatroom"
+            },
+            "render_type": "text",
+            "username": "123456@chatroom"
+          }
+        ],
+        "query": {
+          "limit": 5,
+          "q": "群",
+          "username": "123456@chatroom"
+        }
+      },
+      {
+        "fts_query": "\"报 告\"",
+        "has_more": false,
+        "hits": [
+          {
+            "local_id": 13,
+            "payload": {
+              "amount": "",
+              "content": "[文件] 报告.pdf",
+              "createTime": 1700001300,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:13",
+              "isSent": true,
+              "localId": 13,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "file",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1013,
+              "sortSeq": 13,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "报告.pdf",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "file",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 5,
+          "q": "报告"
+        }
+      },
+      {
+        "fts_query": "\"人 民 广 场\"",
+        "has_more": false,
+        "hits": [
+          {
+            "local_id": 9,
+            "payload": {
+              "amount": "",
+              "content": "人民广场",
+              "createTime": 1700000900,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:9",
+              "isSent": false,
+              "localId": 9,
+              "locationLabel": "上海市黄浦区人民广场",
+              "locationPoiname": "人民广场",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "location",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1009,
+              "sortSeq": 9,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 48,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "location",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 5,
+          "q": "人民广场"
+        }
+      },
+      {
+        "fts_query": "\"已 读\"",
+        "has_more": false,
+        "hits": [],
+        "query": {
+          "limit": 5,
+          "q": "已读"
+        }
+      },
+      {
+        "fts_query": "\"消 息\"",
+        "has_more": true,
+        "hits": [
+          {
+            "local_id": 4,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000400,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:4",
+              "isSent": true,
+              "localId": 4,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1004,
+              "sortSeq": 4,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 3,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000300,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:3",
+              "isSent": false,
+              "localId": 3,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1003,
+              "sortSeq": 3,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 1,
+            "payload": {
+              "amount": "",
+              "content": "跨库消息",
+              "createTime": 1700000250,
+              "db": "message_1",
+              "id": "message_1:chat_84c495fc4279ef9e04dc45b1c31b6fab:1",
+              "isSent": false,
+              "localId": 1,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_friend01",
+              "serverId": 2001,
+              "sortSeq": 1,
+              "source": "decrypted",
+              "table": "chat_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 1,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 3,
+          "offset": 2,
+          "q": "消息"
+        }
+      },
+      {
+        "fts_query": "\"消 息\"",
+        "has_more": false,
+        "hits": [
+          {
+            "local_id": 14,
+            "payload": {
+              "amount": "",
+              "content": "三条消息",
+              "createTime": 1700001400,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:14",
+              "isSent": true,
+              "localId": 14,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "chatHistory",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1014,
+              "sortSeq": 14,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "聊天记录",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "chatHistory",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 10,
+          "q": "消息",
+          "start_ts": 1700001300
+        }
+      },
+      {
+        "fts_query": "\"消 息\"",
+        "has_more": false,
+        "hits": [
+          {
+            "local_id": 14,
+            "payload": {
+              "amount": "",
+              "content": "三条消息",
+              "createTime": 1700001400,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:14",
+              "isSent": true,
+              "localId": 14,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "chatHistory",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1014,
+              "sortSeq": 14,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "聊天记录",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "chatHistory",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 12,
+            "payload": {
+              "amount": "",
+              "content": "\"张三\" 撤回了一条消息",
+              "createTime": 1700001200,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:12",
+              "isSent": false,
+              "localId": 12,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "system",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1012,
+              "sortSeq": 12,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 10000,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "system",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 4,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000400,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:4",
+              "isSent": true,
+              "localId": 4,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1004,
+              "sortSeq": 4,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 3,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000300,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:3",
+              "isSent": false,
+              "localId": 3,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_friend01",
+              "serverId": 1003,
+              "sortSeq": 3,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 1,
+            "payload": {
+              "amount": "",
+              "content": "跨库消息",
+              "createTime": 1700000250,
+              "db": "message_1",
+              "id": "message_1:chat_84c495fc4279ef9e04dc45b1c31b6fab:1",
+              "isSent": false,
+              "localId": 1,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_friend01",
+              "serverId": 2001,
+              "sortSeq": 1,
+              "source": "decrypted",
+              "table": "chat_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 1,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          },
+          {
+            "local_id": 2,
+            "payload": {
+              "amount": "",
+              "content": "[应用消息]",
+              "createTime": 1700000220,
+              "db": "message_0",
+              "id": "message_0:msg_f6f0bf22241823498511bc2aed2cebb7:2",
+              "isSent": true,
+              "localId": 2,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_self0001",
+              "serverId": 3002,
+              "sortSeq": 2,
+              "source": "decrypted",
+              "table": "msg_f6f0bf22241823498511bc2aed2cebb7",
+              "title": "",
+              "type": 49,
+              "url": "",
+              "username": "123456@chatroom"
+            },
+            "render_type": "text",
+            "username": "123456@chatroom"
+          },
+          {
+            "local_id": 1,
+            "payload": {
+              "amount": "",
+              "content": "群消息一",
+              "createTime": 1700000120,
+              "db": "message_0",
+              "id": "message_0:msg_f6f0bf22241823498511bc2aed2cebb7:1",
+              "isSent": false,
+              "localId": 1,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_groupmember",
+              "serverId": 3001,
+              "sortSeq": 1,
+              "source": "decrypted",
+              "table": "msg_f6f0bf22241823498511bc2aed2cebb7",
+              "title": "",
+              "type": 1,
+              "url": "",
+              "username": "123456@chatroom"
+            },
+            "render_type": "text",
+            "username": "123456@chatroom"
+          },
+          {
+            "local_id": 1,
+            "payload": {
+              "amount": "",
+              "content": "第一条消息",
+              "createTime": 1700000100,
+              "db": "message_0",
+              "id": "message_0:msg_84c495fc4279ef9e04dc45b1c31b6fab:1",
+              "isSent": true,
+              "localId": 1,
+              "locationLabel": "",
+              "locationPoiname": "",
+              "quoteContent": "",
+              "quoteTitle": "",
+              "renderType": "text",
+              "senderUsername": "wxid_self0001",
+              "serverId": 1001,
+              "sortSeq": 1,
+              "source": "decrypted",
+              "table": "msg_84c495fc4279ef9e04dc45b1c31b6fab",
+              "title": "",
+              "type": 1,
+              "url": "",
+              "username": "wxid_friend01"
+            },
+            "render_type": "text",
+            "username": "wxid_friend01"
+          }
+        ],
+        "query": {
+          "limit": 50,
+          "q": "消息"
+        }
+      }
+    ],
+    "unique_single_char_tokens": 104
+  },
+  "sessions_default": [
+    {
+      "display_name": "文件传输助手",
+      "draft": "",
+      "has_avatar": true,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000400,
+      "sort_timestamp": 1700000400,
+      "summary": "文件传输助手",
+      "username": "filehelper"
+    },
+    {
+      "display_name": "张三",
+      "draft": "",
+      "has_avatar": true,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000300,
+      "sort_timestamp": 1700000300,
+      "summary": "你好 session",
+      "username": "wxid_friend01"
+    },
+    {
+      "display_name": "开发群",
+      "draft": "draft text",
+      "has_avatar": true,
+      "is_group": true,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 6,
+      "last_msg_type": 49,
+      "last_timestamp": 1700000200,
+      "sort_timestamp": 1700000200,
+      "summary": "<msg><appmsg>群消息</appmsg></msg>",
+      "username": "123456@chatroom"
+    },
+    {
+      "display_name": "李四",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 3,
+      "last_timestamp": 1700000100,
+      "sort_timestamp": 1700000100,
+      "summary": "a &amp; b",
+      "username": "wxid_friend02"
+    },
+    {
+      "display_name": "wxid_friend03",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000000,
+      "sort_timestamp": 1700000000,
+      "summary": "badsummary",
+      "username": "wxid_friend03"
+    }
+  ],
+  "sessions_with_hidden": [
+    {
+      "display_name": "隐藏联系人",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": true,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000500,
+      "sort_timestamp": 1700000500,
+      "summary": "悄悄话",
+      "username": "wxid_hidden01"
+    },
+    {
+      "display_name": "文件传输助手",
+      "draft": "",
+      "has_avatar": true,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000400,
+      "sort_timestamp": 1700000400,
+      "summary": "文件传输助手",
+      "username": "filehelper"
+    },
+    {
+      "display_name": "张三",
+      "draft": "",
+      "has_avatar": true,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000300,
+      "sort_timestamp": 1700000300,
+      "summary": "你好 session",
+      "username": "wxid_friend01"
+    },
+    {
+      "display_name": "开发群",
+      "draft": "draft text",
+      "has_avatar": true,
+      "is_group": true,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 6,
+      "last_msg_type": 49,
+      "last_timestamp": 1700000200,
+      "sort_timestamp": 1700000200,
+      "summary": "<msg><appmsg>群消息</appmsg></msg>",
+      "username": "123456@chatroom"
+    },
+    {
+      "display_name": "李四",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 3,
+      "last_timestamp": 1700000100,
+      "sort_timestamp": 1700000100,
+      "summary": "a &amp; b",
+      "username": "wxid_friend02"
+    },
+    {
+      "display_name": "wxid_friend03",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000000,
+      "sort_timestamp": 1700000000,
+      "summary": "badsummary",
+      "username": "wxid_friend03"
+    }
+  ],
+  "sessions_with_official": [
+    {
+      "display_name": "文件传输助手",
+      "draft": "",
+      "has_avatar": true,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000400,
+      "sort_timestamp": 1700000400,
+      "summary": "文件传输助手",
+      "username": "filehelper"
+    },
+    {
+      "display_name": "张三",
+      "draft": "",
+      "has_avatar": true,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000300,
+      "sort_timestamp": 1700000300,
+      "summary": "你好 session",
+      "username": "wxid_friend01"
+    },
+    {
+      "display_name": "开发群",
+      "draft": "draft text",
+      "has_avatar": true,
+      "is_group": true,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 6,
+      "last_msg_type": 49,
+      "last_timestamp": 1700000200,
+      "sort_timestamp": 1700000200,
+      "summary": "<msg><appmsg>群消息</appmsg></msg>",
+      "username": "123456@chatroom"
+    },
+    {
+      "display_name": "李四",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 3,
+      "last_timestamp": 1700000100,
+      "sort_timestamp": 1700000100,
+      "summary": "a &amp; b",
+      "username": "wxid_friend02"
+    },
+    {
+      "display_name": "官方号",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": true,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000050,
+      "sort_timestamp": 1700000050,
+      "summary": "官方消息",
+      "username": "gh_official001"
+    },
+    {
+      "display_name": "wxid_friend03",
+      "draft": "",
+      "has_avatar": false,
+      "is_group": false,
+      "is_hidden": false,
+      "is_official": false,
+      "last_msg_sub_type": 0,
+      "last_msg_type": 1,
+      "last_timestamp": 1700000000,
+      "sort_timestamp": 1700000000,
+      "summary": "badsummary",
+      "username": "wxid_friend03"
+    }
+  ],
+  "voice_transcripts": [
+    {
+      "expected": "语音转写",
+      "input_hex": "2a100802120ce8afade99fb3e8bdace58699",
+      "type": "blob"
+    },
+    {
+      "expected": "",
+      "input_hex": "2a0d08011209e69caae5ae8ce68890",
+      "type": "blob"
+    },
+    {
+      "expected": "语音转写",
+      "input": "2a100802120ce8afade99fb3e8bdace58699",
+      "type": "text"
+    },
+    {
+      "expected": "",
+      "input_hex": "ff",
+      "type": "blob"
+    }
+  ]
+}

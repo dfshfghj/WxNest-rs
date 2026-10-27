@@ -1,0 +1,47 @@
+{
+  "passphrase": {
+    "copied_as_sqlite": false,
+    "diagnostic_status": "ok",
+    "expected_sha256": "08ee2b1382587e5f56e27b69d7bcaa44d0e44affe03606ef165e577968e949e2",
+    "failed_pages": 0,
+    "hmac_warning_pages": 0,
+    "key_mode": "sqlcipher_passphrase",
+    "success": true,
+    "successful_pages": 12,
+    "total_pages": 12
+  },
+  "raw": {
+    "copied_as_sqlite": false,
+    "diagnostic_status": "ok",
+    "expected_sha256": "08ee2b1382587e5f56e27b69d7bcaa44d0e44affe03606ef165e577968e949e2",
+    "failed_pages": 0,
+    "hmac_warning_pages": 0,
+    "key_mode": "raw_enc_key",
+    "success": true,
+    "successful_pages": 12,
+    "total_pages": 12
+  },
+  "wal": {
+    "expected_sha256": "ca7129b5592ba8b5f42a2c4bc253f754f410b51d39030e9a28d3d5d57a98202b",
+    "failed_pages": 0,
+    "hmac_warning_pages": 0,
+    "key_mode": "raw_enc_key",
+    "modified_page": 3,
+    "success": true,
+    "successful_pages": 12,
+    "total_pages": 12,
+    "wal": {
+      "applied_pages": 1,
+      "committed_frames": 1,
+      "database_pages": 12,
+      "ignored_tail_bytes": 0,
+      "wal_bytes": 4152
+    }
+  },
+  "wrong_key": {
+    "error": "key_mismatch",
+    "failed_pages": 1,
+    "key_mode": "",
+    "success": false
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "aes_key": "a3cf41ff45b72392",
+  "code": 305419896,
+  "inferred_xor_key": 120,
+  "template_path": "template_t.dat",
+  "verified": true,
+  "wxid": "wxid_test",
+  "xor_key": 120,
+  "xor_key_hex": "0x78"
+}

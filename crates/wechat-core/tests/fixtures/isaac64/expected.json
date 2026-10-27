@@ -1,0 +1,20 @@
+[
+  {
+    "expected_hex": "bb69808922286913b7d70db1276beba6c32b9af17c228f4bb1b21e595f46814f9ed5f786977adb401a6654d42f64faba8c44126abf082c7ee390956ddf7b5a2c",
+    "format": "be_swap32",
+    "seed": "12345",
+    "size": 64
+  },
+  {
+    "expected_hex": "4646210c5c3f3f6ff017cd7f41db1ab63e19efa110d44e7c",
+    "format": "raw_le",
+    "seed": "0x1234",
+    "size": 24
+  },
+  {
+    "expected_hex": "673f4a26e311355a",
+    "format": "raw_be",
+    "seed": "",
+    "size": 8
+  }
+]

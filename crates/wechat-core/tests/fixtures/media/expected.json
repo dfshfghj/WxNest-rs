@@ -1,0 +1,25 @@
+{
+  "dat_v3": {
+    "expected_sha256": "96a0ef819d76f09fe6e630dcb467e7f8350a7c5b219d3d2a367d30f000f60293",
+    "xor_key": 90
+  },
+  "dat_v4_v1": {
+    "aes_key": "cfcd208495d565ef",
+    "expected_sha256": "9bef63546294f3f543b5a4eff4f8fc8bdfb36bd9e2b38107515d5fc0ea0f29c9",
+    "xor_key": 90
+  },
+  "dat_v4_v2": {
+    "aes_key": "0123456789abcdef",
+    "expected_sha256": "9bef63546294f3f543b5a4eff4f8fc8bdfb36bd9e2b38107515d5fc0ea0f29c9",
+    "xor_key": 90
+  },
+  "emoticon": {
+    "aes_key_hex": "30313233343536373839616263646566",
+    "expected_sha256": "d96d7ac3e0b770f6479a86b952e21a42e7b33f7cc566fd0fabdbb61416e22ca3"
+  },
+  "xor_png": {
+    "expected_sha256": "d12f2fe885e588cfe392e03919f73df95bc05feb5fa5139ed3fcc4a8af6cdba8",
+    "media_type": "image/png",
+    "xor_key": 90
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "applied_pages": 1,
+  "committed_frames": 1,
+  "database_pages": 12,
+  "expected_sha256": "452432fe2e0950c3275a1011f0f4576b5f781d24c359f5fef85d7790352850ac",
+  "ignored_tail_bytes": 0,
+  "modified_page": 12,
+  "page_size": 4096
+}

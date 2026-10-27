@@ -1,0 +1,39 @@
+[package]
+name = "wechat-ui"
+version = "0.1.0"
+edition = "2024"
+description = "GPUI desktop UI for WeChat data engine"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+name = "wechat_ui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wechat-ui"
+path = "src/main.rs"
+
+[dependencies]
+wechat-data = { path = "../wechat-data" }
+chrono = { workspace = true }
+gpui-kit = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -1,0 +1,42 @@
+[package]
+name = "wechat-data"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "WeChat chat data layer"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+name = "wechat_data"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wechat-data"
+path = "src/bin/wechat-data.rs"
+
+[dependencies]
+wechat-core = { path = "../wechat-core" }
+wechat-broker = { path = "../wechat-broker" }
+wechat-key-scan = { path = "../wechat-key-scan" }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+md-5 = { workspace = true }
+zstd = { workspace = true }
+base64 = { workspace = true }
+html-escape = { workspace = true }
+regex = { workspace = true }
+roxmltree = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+tempfile = { workspace = true }
+ureq = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+ureq = { workspace = true }
+url = { workspace = true }

@@ -1,0 +1,36 @@
+[package]
+name = "wechat-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Rust core for WeChat 4.x database and media decryption"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+name = "wechat_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wechat-core"
+path = "src/bin/wechat-core.rs"
+
+[dependencies]
+aes = "0.8"
+cipher = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = "0.12"
+md-5 = "0.10"
+subtle = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
+hex = "0.4"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
