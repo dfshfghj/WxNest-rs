@@ -5675,6 +5675,37 @@ impl WeChatApp {
                                 ),
                         )
                     })
+                    .when(!self.setup_mode, |this| {
+                        this.child(
+                            div()
+                                .rounded_lg()
+                                .border_1()
+                                .border_color(ui_color(0xeeeeee))
+                                .bg(ui_color(0xfafafa))
+                                .p_4()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(div().text_sm().child("关于 WxNest-rs"))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(ui_color(0x8a8a8a))
+                                        .child(format!(
+                                            "版本 {} · 让本地 Agent 住进微信",
+                                            env!("CARGO_PKG_VERSION")
+                                        )),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(ui_color(0x8a8a8a))
+                                        .child(
+                                            "原创代码 CC BY-NC-SA 4.0；text_bridge 组件为非商业许可，详见根目录 LICENSE 与 THIRD_PARTY_NOTICES",
+                                        ),
+                                ),
+                        )
+                    })
                     .when(!self.status.trim().is_empty(), |this| {
                         this.child(
                             div()
@@ -9518,7 +9549,13 @@ impl Render for WeChatApp {
         let title_bar = gpui_kit::component::TitleBar::new()
             .bg(ui_color(0xf2f2f2))
             .border_color(ui_color(0xe0e0e0))
-            .text_color(ui_color(0x4b5563));
+            .text_color(ui_color(0x4b5563))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(ui_color(0x4b5563))
+                    .child("WxNest-rs"),
+            );
         let mut root = div()
             .size_full()
             .flex()

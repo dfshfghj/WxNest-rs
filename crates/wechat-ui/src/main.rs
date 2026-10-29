@@ -15,7 +15,7 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             init(cx);
-            let options = WindowOptions {
+            let mut options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: point(px(80.), px(60.)),
                     size: size(px(1280.), px(820.)),
@@ -23,6 +23,9 @@ fn main() {
                 focus: true,
                 ..gpui_kit::component::TitleBar::window_options()
             };
+            if let Some(titlebar) = options.titlebar.as_mut() {
+                titlebar.title = Some("WxNest-rs".into());
+            }
             open_window(options, cx, {
                 let account_dir = account_dir.clone();
                 move |window, cx| {
