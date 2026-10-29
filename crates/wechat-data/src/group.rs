@@ -35,6 +35,88 @@ pub fn load_group_nickname_map(
     Ok(parse_group_nickname_map(&ext_buffer, sender_usernames))
 }
 
+pub fn load_group_members(contact_db_path: &Path, chatroom_id: &str) -> Result<Vec<(String, String)>> {
+    let chatroom = chatroom_id.trim();
+    if !chatroom.ends_with("@chatroom") || !contact_db_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let connection = open_read_only(contact_db_path)?;
+    if !table_exists(&connection, "chat_room")? {
+        return Ok(Vec::new());
+    }
+    let ext_buffer: Option<Vec<u8>> = connection
+        .query_row(
+            "SELECT ext_buffer FROM chat_room WHERE username = ?1 LIMIT 1",
+            [chatroom],
+            |row| Ok(row_value(row, 0)),
+        )
+        .ok()
+        .and_then(|value| match value {
+            SqlValue::Blob(bytes) => Some(bytes),
+            _ => None,
+        });
+    let Some(ext_buffer) = ext_buffer else {
+        return Ok(Vec::new());
+    };
+    Ok(parse_group_members(&ext_buffer))
+}
+
+pub(crate) fn parse_group_members(ext_buffer: &[u8]) -> Vec<(String, String)> {
+    let mut records: Vec<Vec<(u64, String)>> = Vec::new();
+    for (_, chunk) in iter_fields(ext_buffer) {
+        let mut strings = Vec::new();
+        for (field_no, value) in iter_fields(chunk) {
+            if value.is_empty() || value.len() > 256 {
+                continue;
+            }
+            let Ok(text) = std::str::from_utf8(value) else {
+                continue;
+            };
+            let text = text.trim();
+            if !text.is_empty() {
+                strings.push((field_no, text.to_string()));
+            }
+        }
+        if !strings.is_empty() {
+            records.push(strings);
+        }
+    }
+    let current_layout = records
+        .iter()
+        .any(|strings| strings.iter().any(|(field_no, _)| *field_no == 2));
+    let mut members: HashMap<String, String> = HashMap::new();
+    for strings in &records {
+        let username = strings
+            .iter()
+            .find(|(field_no, value)| {
+                (*field_no == 1 || (!current_layout && *field_no == 4))
+                    && looks_like_username(value)
+            })
+            .map(|(_, value)| value.clone());
+        let display = strings
+            .iter()
+            .find(|(field_no, value)| {
+                (*field_no == if current_layout { 2 } else { 1 }) && !looks_like_username(value)
+            })
+            .map(|(_, value)| value.clone());
+        let Some(username) = username else {
+            continue;
+        };
+        if username.ends_with("@chatroom") {
+            continue;
+        }
+        let display = display.unwrap_or_else(|| username.clone());
+        members.entry(username).or_insert(display);
+    }
+    let mut output: Vec<(String, String)> = members.into_iter().collect();
+    output.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    output
+}
+
 pub(crate) fn parse_group_nickname_map(
     ext_buffer: &[u8],
     sender_usernames: &[String],
@@ -293,6 +375,7 @@ fn pick_display(strings: &[(u64, String)], target: &str, allowed_fields: &[u64])
 mod tests {
     use super::*;
 
+
     fn varint(mut value: u64) -> Vec<u8> {
         let mut output = Vec::new();
         loop {
@@ -359,3 +442,4 @@ mod tests {
         }
     }
 }
+

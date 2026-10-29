@@ -1,0 +1,27 @@
+[package]
+name = "wechat-watch"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "wechat_watch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wechat-watch"
+path = "src/main.rs"
+
+[dependencies]
+wechat-data = { path = "../wechat-data" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_JobObjects",
+] }

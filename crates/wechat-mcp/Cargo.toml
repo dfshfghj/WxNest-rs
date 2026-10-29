@@ -1,0 +1,16 @@
+[package]
+name = "wechat-mcp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "wechat-mcp"
+path = "src/main.rs"
+
+[dependencies]
+wechat-data = { path = "../wechat-data" }
+wechat-key-scan = { path = "../wechat-key-scan" }
+wechat-broker = { path = "../wechat-broker" }
+serde = { workspace = true }
+serde_json = { workspace = true }

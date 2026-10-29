@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -11,6 +11,9 @@ use wechat_core::image_key::{scan_v2_templates, trusted_xor_for_verified_aes_key
 use wechat_core::sqlcipher::{read_page1, resolve_page1_key_material, KeyMode};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+use windows_sys::Win32::System::RestartManager::{
+    RmEndSession, RmGetList, RmRegisterResources, RmStartSession, RM_PROCESS_INFO,
+};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -275,6 +278,85 @@ fn validate(key: &[u8; 32], internal: Option<&[u8; 32]>, page1: &[u8]) -> Option
     })
 }
 
+fn account_session_db(account_dir: &Path) -> PathBuf {
+    let nested = account_dir
+        .join("db_storage")
+        .join("session")
+        .join("session.db");
+    if nested.is_file() {
+        return nested;
+    }
+    let direct = account_dir.join("session").join("session.db");
+    if direct.is_file() {
+        return direct;
+    }
+    account_dir.join("session.db")
+}
+
+fn pids_using_file(path: &Path) -> Vec<u32> {
+    if path.as_os_str().is_empty() {
+        return Vec::new();
+    }
+    let mut session = 0u32;
+    let mut key = [0u16; 33];
+    if unsafe { RmStartSession(&mut session, 0, key.as_mut_ptr()) } != 0 {
+        return Vec::new();
+    }
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let files = [wide.as_ptr()];
+    let registered = unsafe {
+        RmRegisterResources(
+            session,
+            1,
+            files.as_ptr(),
+            0,
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+        )
+    };
+    let mut pids = Vec::new();
+    if registered == 0 {
+        let mut needed = 0u32;
+        let mut count = 0u32;
+        let mut reasons = 0u32;
+        let mut infos: Vec<RM_PROCESS_INFO> = vec![unsafe { std::mem::zeroed() }; 16];
+        let mut status = unsafe {
+            RmGetList(
+                session,
+                &mut needed,
+                &mut count,
+                infos.as_mut_ptr(),
+                &mut reasons,
+            )
+        };
+        if status == 234 && needed > 0 {
+            infos = vec![unsafe { std::mem::zeroed() }; needed as usize];
+            count = needed;
+            status = unsafe {
+                RmGetList(
+                    session,
+                    &mut needed,
+                    &mut count,
+                    infos.as_mut_ptr(),
+                    &mut reasons,
+                )
+            };
+        }
+        if status == 0 {
+            for info in infos.iter().take(count as usize) {
+                pids.push(info.Process.dwProcessId);
+            }
+        }
+    }
+    unsafe { RmEndSession(session) };
+    pids
+}
+
 pub fn recover_image_key_for_account(
     account_dir: &Path,
     pid: Option<u32>,
@@ -289,7 +371,17 @@ pub fn recover_image_key_for_account(
     }
     let pids = match pid {
         Some(pid) => vec![pid],
-        None => ordered_pids(&weixin_processes()),
+        None => {
+            let mut ordered = ordered_pids(&weixin_processes());
+            let owners = pids_using_file(&account_session_db(account_dir));
+            if !owners.is_empty() {
+                ordered.sort_by_key(|candidate| !owners.contains(candidate));
+            }
+            if std::env::var_os("WCE_KEY_DEBUG").is_some() {
+                eprintln!("image key scan owners={owners:?} ordered={ordered:?}");
+            }
+            ordered
+        }
     };
     if pids.is_empty() {
         return Err(KeyScanError::NotFound(

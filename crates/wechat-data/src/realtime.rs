@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use wechat_broker::{BrokerClient, BrokerHost, Cell};
+use wechat_broker::{BrokerClient, BrokerHost, BrokerOptions, Cell};
 
 use crate::error::Result;
 use crate::sqlite::SqlValue;
@@ -14,8 +14,16 @@ pub struct RealtimeHost {
 
 impl RealtimeHost {
     pub fn spawn(broker_exe: &Path, roots: &[PathBuf]) -> Result<Self> {
+        Self::spawn_with_options(broker_exe, roots, &BrokerOptions::default())
+    }
+
+    pub fn spawn_with_options(
+        broker_exe: &Path,
+        roots: &[PathBuf],
+        options: &BrokerOptions,
+    ) -> Result<Self> {
         Ok(Self {
-            host: Arc::new(BrokerHost::spawn(broker_exe, roots)?),
+            host: Arc::new(BrokerHost::spawn_with_options(broker_exe, roots, options)?),
         })
     }
 

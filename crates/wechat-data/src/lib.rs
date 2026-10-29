@@ -25,7 +25,7 @@ pub mod time;
 
 pub use account::{discover_accounts, AccountStore};
 pub use error::{DataError, Result};
-pub use group::load_group_nickname_map;
+pub use group::{load_group_members, load_group_nickname_map};
 pub use general::{
     parse_finder_lives, parse_mini_programs, parse_payments, query_rows, FinderLive, MiniProgram,
     PaymentItem,
@@ -49,11 +49,12 @@ pub use message_media::{
     set_media_root, MessageImage,
 };
 pub use model::{
-    AccountInfo, AvatarImage, Contact, ContactItem, Message, MessageCursor, MessageKind,
-    MessagePage, Session,
+    AccountInfo, AvatarImage, Contact, ContactItem, Message, MessageAfterPage, MessageCursor,
+    MessageKind, MessagePage, Session,
 };
 pub use realtime::{RealtimeDatabase, RealtimeHost, RealtimePage};
-pub use realtime_account::RealtimeAccountStore;
+pub use wechat_broker::BrokerOptions;
+pub use realtime_account::{ActionClient, RealtimeAccountStore};
 pub use remote_media::{
     fetch_emoticon_media, fetch_tencent_media, is_allowed_tencent_host, normalize_tencent_url,
     RemoteMedia,

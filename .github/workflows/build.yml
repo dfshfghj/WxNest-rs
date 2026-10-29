@@ -152,7 +152,7 @@ jobs:
       - name: Verify binaries
         shell: pwsh
         run: |
-          foreach ($name in @('wechat-ui.exe', 'wce-self-broker.exe')) {
+          foreach ($name in @('wechat-ui.exe', 'wce-self-broker.exe', 'wechat-mcp.exe', 'wechat-watch.exe')) {
             $path = Join-Path 'target\release' $name
             if (!(Test-Path -LiteralPath $path)) {
               throw "missing $path"
@@ -167,6 +167,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
           Copy-Item 'target\release\wechat-ui.exe' $dist
           Copy-Item 'target\release\wce-self-broker.exe' $dist
+          Copy-Item 'target\release\wechat-mcp.exe' $dist
+          Copy-Item 'target\release\wechat-watch.exe' $dist
           Copy-Item 'README.md' $dist
 
       - uses: actions/upload-artifact@v4

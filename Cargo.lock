@@ -7984,6 +7984,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8095,6 +8096,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wechat-mcp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wechat-broker",
+ "wechat-data",
+ "wechat-key-scan",
+]
+
+[[package]]
 name = "wechat-ui"
 version = "0.1.0"
 dependencies = [
@@ -8104,6 +8116,18 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "wechat-data",
+ "wechat-watch",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "wechat-watch"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
  "wechat-data",
  "windows-sys 0.61.2",
 ]

@@ -70,6 +70,13 @@ struct QueryResponse {
     truncated: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct BrokerOptions {
+    pub native_bridge: Option<PathBuf>,
+    pub native_work_dir: Option<PathBuf>,
+    pub native_timeout_ms: Option<u64>,
+}
+
 pub struct BrokerHost {
     child: Child,
     base_url: String,
@@ -78,6 +85,14 @@ pub struct BrokerHost {
 
 impl BrokerHost {
     pub fn spawn(broker_exe: &Path, roots: &[PathBuf]) -> Result<Self> {
+        Self::spawn_with_options(broker_exe, roots, &BrokerOptions::default())
+    }
+
+    pub fn spawn_with_options(
+        broker_exe: &Path,
+        roots: &[PathBuf],
+        options: &BrokerOptions,
+    ) -> Result<Self> {
         if !broker_exe.is_file() {
             return Err(BrokerError::NotReady(format!(
                 "broker 可执行文件不存在: {}",
@@ -93,6 +108,16 @@ impl BrokerHost {
         command.arg("--port").arg("0").arg("--token").arg(&token);
         for root in roots {
             command.arg("--root").arg(root);
+        }
+        if let Some(bridge) = options.native_bridge.as_ref() {
+            command.arg("--actions").arg("native");
+            command.arg("--actions-dll").arg(bridge);
+            if let Some(work_dir) = options.native_work_dir.as_ref() {
+                command.arg("--actions-work-dir").arg(work_dir);
+            }
+            if let Some(timeout) = options.native_timeout_ms {
+                command.arg("--actions-timeout-ms").arg(timeout.to_string());
+            }
         }
         command
             .stdin(Stdio::null())
@@ -128,11 +153,22 @@ impl BrokerHost {
         });
 
         match rx.recv_timeout(Duration::from_secs(15)) {
-            Ok(port) => Ok(Self {
-                child,
-                base_url: format!("http://127.0.0.1:{port}"),
-                token,
-            }),
+            Ok(port) => {
+                let host = Self {
+                    child,
+                    base_url: format!("http://127.0.0.1:{port}"),
+                    token,
+                };
+                for _ in 0..50 {
+                    if host.client().health().is_ok() {
+                        return Ok(host);
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(BrokerError::NotReady(
+                    "broker 已启动但健康检查失败（5s）".to_string(),
+                ))
+            }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -248,6 +284,35 @@ impl BrokerClient {
             rows,
             truncated: parsed.truncated,
         })
+    }
+
+    pub fn action(
+        &self,
+        action: &str,
+        account: &str,
+        account_directory: &str,
+        recipient: &str,
+        payload: &str,
+        dry_run: bool,
+    ) -> Result<Value> {
+        let body = json!({
+            "action": action,
+            "account": account,
+            "account_directory": account_directory,
+            "recipient": recipient,
+            "payload": payload,
+            "dry_run": dry_run,
+        });
+        let response = self
+            .authed(
+                self.agent
+                    .post(&format!("{}/v1/wechat/action", self.base_url)),
+            )
+            .send_json(body)
+            .map_err(map_ureq_error)?;
+        response
+            .into_json()
+            .map_err(|err| BrokerError::Protocol(err.to_string()))
     }
 
     pub fn close(&self, db_id: u64) -> Result<()> {

@@ -151,6 +151,13 @@ pub struct MessagePage {
     pub next_before: Option<MessageCursor>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageAfterPage {
+    pub messages: Vec<Message>,
+    pub has_more: bool,
+    pub next_after: Option<MessageCursor>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::MessageKind;

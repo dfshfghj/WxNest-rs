@@ -21,6 +21,9 @@ use serde_json::{json, Map, Value};
 use sha2::Sha512;
 use url::Url;
 
+mod actions;
+mod native_actions;
+
 const KDF_ROUNDS: u32 = 256_000;
 const PAGE_SIZE: usize = 4096;
 const MAX_MEDIA_BYTES: usize = 32 * 1024 * 1024;
@@ -35,6 +38,8 @@ struct AppState {
     dbs: Arc<Mutex<HashMap<u64, Arc<Mutex<Connection>>>>>,
     next_id: Arc<Mutex<u64>>,
     http: reqwest::Client,
+    actions: actions::ActionMode,
+    native: Option<Arc<native_actions::NativeProvider>>,
 }
 
 #[derive(Deserialize)]
@@ -363,10 +368,234 @@ async fn fetch_media(
     }))
 }
 
-fn parse_args() -> (Vec<PathBuf>, u16, String) {
+async fn list_wechat_actions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    check_auth(&state, &headers)?;
+    Ok(Json(actions::catalog(state.actions)))
+}
+
+async fn run_wechat_action(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<actions::ActionRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    check_auth(&state, &headers)?;
+    if state.actions == actions::ActionMode::Disabled {
+        return Ok((StatusCode::FORBIDDEN, Json(json!({ "status": "disabled" }))));
+    }
+    let plan = actions::plan(state.actions, &request)
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    if !request.dry_run {
+        if state.actions == actions::ActionMode::Native {
+            return execute_native_action(state, request, plan).await;
+        }
+        return Ok((
+            StatusCode::NOT_IMPLEMENTED,
+            Json(actions::not_implemented(&plan)),
+        ));
+    }
+    Ok((StatusCode::OK, Json(json!(plan))))
+}
+
+async fn execute_native_action(
+    state: AppState,
+    request: actions::ActionRequest,
+    plan: actions::ActionPlan,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    if request.action == "moments.refresh" {
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "status": "local_refresh",
+                "action": "moments.refresh",
+                "executed": true,
+                "native": false,
+                "note": "本地缓存重读；未触发微信网络刷新",
+            })),
+        ));
+    }
+    let provider = state.native.ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "native provider is not configured".to_string(),
+    ))?;
+    let account = request.account.clone();
+    let recipient = request.recipient.clone();
+    let payload = request.payload.clone();
+    let result = match request.action.as_str() {
+        "message.send_text" => {
+            let value =
+                tokio::task::spawn_blocking(move || provider.send_text(&recipient, &payload))
+                    .await
+                    .map_err(native_join_error)?
+                    .map_err(native_action_error)?;
+            if !value.completion_success {
+                return Err((
+                    StatusCode::BAD_GATEWAY,
+                    format!("native send failed with status {}", value.native_status),
+                ));
+            }
+            json!(value)
+        }
+        "message.send_image" | "message.send_file" | "message.send_emoticon" => {
+            let action = request.action.clone();
+            let path = payload.clone();
+            tokio::task::spawn_blocking(move || match action.as_str() {
+                "message.send_image" => provider.send_image(&account, &recipient, &path),
+                "message.send_file" => provider.send_file(&account, &recipient, &path),
+                _ => provider.send_emoticon(&account, &recipient, &path),
+            })
+            .await
+            .map_err(native_join_error)?
+            .map_err(native_action_error)?
+        }
+        "message.send_voice" => {
+            let (path, duration) = payload.split_once('').ok_or((
+                StatusCode::BAD_REQUEST,
+                "voice payload must be path\x1fduration".to_string(),
+            ))?;
+            let duration = duration.parse::<u32>().map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "voice duration is invalid".to_string(),
+                )
+            })?;
+            let path = path.to_string();
+            tokio::task::spawn_blocking(move || {
+                provider.send_voice(&account, &recipient, &path, duration)
+            })
+            .await
+            .map_err(native_join_error)?
+            .map_err(native_action_error)?
+        }
+        "message.send_at_text" => {
+            let (members, text) = payload.split_once('').ok_or((
+                StatusCode::BAD_REQUEST,
+                "at text payload must be members\x1ftext".to_string(),
+            ))?;
+            let members = members.to_string();
+            let text = text.to_string();
+            tokio::task::spawn_blocking(move || {
+                provider.send_at_text(&account, &recipient, &text, &members)
+            })
+            .await
+            .map_err(native_join_error)?
+            .map_err(native_action_error)?
+        }
+        "moments.publish" => {
+            let fields: Vec<&str> = payload.split('\u{1f}').collect();
+            let privacy = fields
+                .first()
+                .and_then(|value| value.parse::<u32>().ok())
+                .ok_or((
+                    StatusCode::BAD_REQUEST,
+                    "moments.publish privacy is invalid".to_string(),
+                ))?;
+            if privacy > 2 {
+                return Err((
+                    StatusCode::NOT_IMPLEMENTED,
+                    "native moments.publish supports public/private only".to_string(),
+                ));
+            }
+            let content = fields.get(1).copied().unwrap_or("").to_string();
+            let images: Vec<String> = fields
+                .get(2)
+                .map(|value| {
+                    value
+                        .split('\u{1e}')
+                        .filter(|item| !item.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            tokio::task::spawn_blocking(move || {
+                provider.publish_moments(&account, &content, &images, privacy)
+            })
+            .await
+            .map_err(native_join_error)?
+            .map_err(native_action_error)?
+        }
+        "moments.like" => {
+            let feed: u64 = recipient.parse().map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "moments.like recipient must be a feed id".to_string(),
+                )
+            })?;
+            tokio::task::spawn_blocking(move || provider.moments_action(&account, feed, 1, ""))
+                .await
+                .map_err(native_join_error)?
+                .map_err(native_action_error)?
+        }
+        "moments.comment_image" => {
+            let feed: u64 = recipient.parse().map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "moments.comment_image recipient must be a feed id".to_string(),
+                )
+            })?;
+            let image = payload
+                .split_once('\u{1f}')
+                .map(|(_, path)| path.to_string())
+                .filter(|path| !path.is_empty())
+                .ok_or((
+                    StatusCode::BAD_REQUEST,
+                    "moments.comment_image payload must be user\\x1fpath".to_string(),
+                ))?;
+            tokio::task::spawn_blocking(move || provider.moments_action(&account, feed, 3, &image))
+                .await
+                .map_err(native_join_error)?
+                .map_err(native_action_error)?
+        }
+        _ => {
+            return Ok((
+                StatusCode::NOT_IMPLEMENTED,
+                Json(actions::not_implemented(&plan)),
+            ));
+        }
+    };
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "status": "sent",
+            "action": plan.action,
+            "executed": true,
+            "result": result,
+        })),
+    ))
+}
+
+fn native_join_error(err: tokio::task::JoinError) -> ApiError {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("native task failed: {err}"),
+    )
+}
+
+fn native_action_error(message: String) -> ApiError {
+    let code = if message.contains("timed out") {
+        StatusCode::GATEWAY_TIMEOUT
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+    (code, message)
+}
+
+fn parse_args() -> (
+    Vec<PathBuf>,
+    u16,
+    String,
+    actions::ActionMode,
+    Option<Arc<native_actions::NativeProvider>>,
+) {
     let mut roots: Vec<PathBuf> = Vec::new();
     let mut port: u16 = 0;
     let mut token = std::env::var("WCE_BROKER_TOKEN").unwrap_or_default();
+    let mut action_mode = actions::ActionMode::DryRun;
+    let mut action_dll: Option<PathBuf> = None;
+    let mut action_work_dir = std::env::temp_dir().join("wce-native-actions");
+    let mut action_timeout = Duration::from_millis(15_000);
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -386,6 +615,29 @@ fn parse_args() -> (Vec<PathBuf>, u16, String) {
                     token = value;
                 }
             }
+            "--actions" => {
+                if let Some(value) = args.next() {
+                    match actions::ActionMode::from_arg(&value) {
+                        Some(mode) => action_mode = mode,
+                        None => eprintln!("未知动作模式: {value}"),
+                    }
+                }
+            }
+            "--actions-dll" => {
+                if let Some(value) = args.next() {
+                    action_dll = Some(PathBuf::from(value));
+                }
+            }
+            "--actions-work-dir" => {
+                if let Some(value) = args.next() {
+                    action_work_dir = PathBuf::from(value);
+                }
+            }
+            "--actions-timeout-ms" => {
+                if let Some(value) = args.next() {
+                    action_timeout = Duration::from_millis(value.parse().unwrap_or(15_000));
+                }
+            }
             other => eprintln!("忽略未知参数: {other}"),
         }
     }
@@ -396,19 +648,50 @@ fn parse_args() -> (Vec<PathBuf>, u16, String) {
         token = hex::encode(bytes);
     }
 
-    let roots = roots
+    let roots: Vec<PathBuf> = roots
         .into_iter()
         .map(|root| std::fs::canonicalize(&root).unwrap_or(root))
         .collect();
-    (roots, port, token)
+    let target_db = roots
+        .iter()
+        .find_map(|root| {
+            let nested = root.join("session").join("session.db");
+            if nested.is_file() {
+                return Some(nested);
+            }
+            let flat = root.join("session.db");
+            flat.is_file().then_some(flat)
+        })
+        .unwrap_or_default();
+    let native = if action_mode == actions::ActionMode::Native {
+        match action_dll {
+            Some(dll) if dll.is_file() => Some(Arc::new(native_actions::NativeProvider::new(
+                dll,
+                action_work_dir,
+                action_timeout,
+                target_db,
+            ))),
+            Some(dll) => {
+                eprintln!("native bridge not found: {}", dll.display());
+                std::process::exit(2);
+            }
+            None => {
+                eprintln!("--actions native 需要 --actions-dll <text_bridge.dll>");
+                std::process::exit(2);
+            }
+        }
+    } else {
+        None
+    };
+    (roots, port, token, action_mode, native)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (roots, port, token) = parse_args();
+    let (roots, port, token, action_mode, native) = parse_args();
     if roots.is_empty() {
         eprintln!(
-            "用法: wce-self-broker --root <db_storage> [--root ...] [--port 8765] [--token <t>]"
+            "用法: wce-self-broker --root <db_storage> [--root ...] [--port 8765] [--token <t>] [--actions disabled|dry-run|native] [--actions-dll <text_bridge.dll>]"
         );
         std::process::exit(2);
     }
@@ -425,10 +708,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         dbs: Arc::new(Mutex::new(HashMap::new())),
         next_id: Arc::new(Mutex::new(0)),
         http,
+        actions: action_mode,
+        native,
     };
 
     let app = Router::new()
         .route("/v1/health", get(health))
+        .route("/v1/wechat/actions", get(list_wechat_actions))
+        .route("/v1/wechat/action", post(run_wechat_action))
         .route("/v1/db/open", post(open_db))
         .route("/v1/db/query", post(query_db))
         .route("/v1/db/close", post(close_db))

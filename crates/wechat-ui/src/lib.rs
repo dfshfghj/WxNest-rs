@@ -19,6 +19,9 @@ use gpui_kit::{
     Task, TestSupportExt as _, TitlebarOptions, Window, WindowBounds, WindowOptions, div, img,
     point, px, rgb, size, svg,
 };
+use wechat_watch::{
+    detect_agents, AgentConfig as WatchAgentConfig, SessionConfig as WatchSessionConfig, WatchConfig,
+};
 use wechat_data::{
     AccountInfo, AccountStore, AvatarImage, ContactItem, FinderLive, ImageKeys, KeyStore, Message,
     MessageBody, MessageCursor, MessageKind, MessageQuery, MiniProgram, PaymentItem,
@@ -47,6 +50,7 @@ enum View {
     MiniPrograms,
     Payments,
     Search,
+    AiReply,
 }
 
 #[derive(Clone)]
@@ -56,6 +60,135 @@ struct RealtimeParams {
     key: String,
     raw_key: bool,
     account: Option<String>,
+    native_bridge: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AccountProfile {
+    path: PathBuf,
+    #[serde(default)]
+    key_store: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AiSessionSetting {
+    username: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    prompt: String,
+    #[serde(default)]
+    permission: String,
+    #[serde(default = "default_session_mode")]
+    session_mode: String,
+    #[serde(default)]
+    agent_program: String,
+    #[serde(default)]
+    agent_args: String,
+    #[serde(default)]
+    agent_stream: bool,
+    #[serde(default)]
+    stream_args: String,
+    #[serde(default)]
+    reply_mode: String,
+}
+
+#[derive(Clone)]
+struct AiTranscriptEntry {
+    ts: u64,
+    kind: String,
+    name: String,
+    text: String,
+    error: bool,
+    session: String,
+}
+
+enum AiTreeRow {
+    Chat {
+        username: String,
+        display_name: String,
+        enabled: bool,
+        selected: bool,
+        expanded: bool,
+        agent_count: usize,
+    },
+    Agent {
+        username: String,
+        session_id: String,
+        label: String,
+        current: bool,
+        viewing: bool,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AiReplySettings {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    agent_program: String,
+    #[serde(default)]
+    agent_args: String,
+    #[serde(default)]
+    agent_stream: bool,
+    #[serde(default)]
+    stream_args: String,
+    #[serde(default = "default_ai_stream_idle")]
+    stream_idle_secs: u64,
+    #[serde(default = "default_ai_permission")]
+    permission: String,
+    #[serde(default = "default_ai_mcp")]
+    mcp_server: String,
+    #[serde(default = "default_ai_poll")]
+    poll_ms: u64,
+    #[serde(default = "default_ai_reply_mode")]
+    reply_mode: String,
+    #[serde(default)]
+    sessions: Vec<AiSessionSetting>,
+}
+
+impl Default for AiReplySettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            agent_program: String::new(),
+            agent_args: String::new(),
+            agent_stream: false,
+            stream_args: String::new(),
+            stream_idle_secs: default_ai_stream_idle(),
+            permission: default_ai_permission(),
+            mcp_server: default_ai_mcp(),
+            poll_ms: default_ai_poll(),
+            reply_mode: default_ai_reply_mode(),
+            sessions: Vec::new(),
+        }
+    }
+}
+
+fn default_ai_permission() -> String {
+    "bypass_permissions".to_string()
+}
+
+fn default_ai_mcp() -> String {
+    "wechat-ai".to_string()
+}
+
+fn default_ai_poll() -> u64 {
+    700
+}
+
+fn default_ai_reply_mode() -> String {
+    "stdout".to_string()
+}
+
+fn default_ai_stream_idle() -> u64 {
+    900
+}
+
+fn default_session_mode() -> String {
+    "persistent".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,12 +203,18 @@ struct AppSettings {
     key_store: Option<PathBuf>,
     #[serde(default)]
     broker: Option<PathBuf>,
+    #[serde(default)]
+    native_bridge: Option<PathBuf>,
     #[serde(default = "default_remote_cdn")]
     remote_cdn: bool,
     #[serde(default = "default_theme")]
     theme: String,
     #[serde(default = "default_minimize_to_tray")]
     minimize_to_tray: bool,
+    #[serde(default)]
+    accounts: Vec<AccountProfile>,
+    #[serde(default = "default_native_actions")]
+    native_actions: bool,
 }
 
 fn default_remote_cdn() -> bool {
@@ -83,6 +222,10 @@ fn default_remote_cdn() -> bool {
 }
 
 fn default_minimize_to_tray() -> bool {
+    true
+}
+
+fn default_native_actions() -> bool {
     true
 }
 
@@ -180,6 +323,65 @@ fn find_broker(storage: &Path, settings: &AppSettings) -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
+fn find_native_bridge(settings: &AppSettings) -> Option<PathBuf> {
+    if let Some(path) = settings.native_bridge.as_ref()
+        && path.is_file()
+    {
+        return Some(path.clone());
+    }
+    std::env::var_os("WCE_NATIVE_BRIDGE")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+}
+
+fn native_bridge_for(settings: &AppSettings) -> Option<PathBuf> {
+    if settings.native_actions {
+        settings.native_bridge.clone()
+    } else {
+        None
+    }
+}
+
+fn discover_sibling_accounts(path: &Path) -> Vec<PathBuf> {
+    let base = if path.file_name().is_some_and(|name| name == "db_storage") {
+        path.parent().and_then(Path::parent)
+    } else if path.join("db_storage").is_dir() {
+        path.parent()
+    } else if path.file_name().is_some_and(|name| name == "xwechat_files") {
+        Some(path)
+    } else {
+        None
+    };
+    let Some(base) = base else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(base) else {
+        return Vec::new();
+    };
+    let mut accounts = Vec::new();
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if candidate.is_dir() && candidate.join("db_storage").is_dir() {
+            accounts.push(candidate);
+        }
+        if accounts.len() >= 16 {
+            break;
+        }
+    }
+    accounts
+}
+
+fn broker_options(settings: &AppSettings) -> wechat_data::BrokerOptions {
+    wechat_data::BrokerOptions {
+        native_bridge: native_bridge_for(settings),
+        native_work_dir: settings
+            .storage_dir
+            .as_ref()
+            .map(|dir| dir.join("native-actions")),
+        native_timeout_ms: None,
+    }
+}
+
 fn write_recovered_key_store(
     path: &Path,
     db_storage: &Path,
@@ -210,8 +412,14 @@ fn write_recovered_key_store(
             serde_json::Value::Number(image.xor_key.into()),
         );
     }
-    let payload = serde_json::json!({ account: serde_json::Value::Object(entry) });
-    let text = serde_json::to_string_pretty(&payload).map_err(|error| error.to_string())?;
+    let mut payload = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    payload.insert(account, serde_json::Value::Object(entry));
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(payload))
+        .map_err(|error| error.to_string())?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
@@ -222,6 +430,8 @@ fn write_recovered_key_store(
 enum SettingsField {
     Account,
     Storage,
+    KeyStore,
+    Bridge,
 }
 
 #[derive(Clone, Copy)]
@@ -241,9 +451,12 @@ impl Default for AppSettings {
             media_root: None,
             key_store: None,
             broker: None,
+            native_bridge: None,
             remote_cdn: true,
             theme: "light".to_string(),
             minimize_to_tray: true,
+            accounts: Vec::new(),
+            native_actions: true,
         }
     }
 }
@@ -277,6 +490,110 @@ fn load_settings() -> Option<AppSettings> {
     }
     let text = std::fs::read_to_string(settings_path()).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+fn split_args_line(text: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut has_content = false;
+    for ch in text.chars() {
+        if let Some(mark) = quote {
+            if ch == mark {
+                quote = None;
+            } else {
+                current.push(ch);
+            }
+            has_content = true;
+            continue;
+        }
+        match ch {
+            '"' | '\'' => {
+                quote = Some(ch);
+                has_content = true;
+            }
+            value if value.is_whitespace() => {
+                if has_content {
+                    args.push(std::mem::take(&mut current));
+                    has_content = false;
+                }
+            }
+            _ => {
+                current.push(ch);
+                has_content = true;
+            }
+        }
+    }
+    if has_content {
+        args.push(current);
+    }
+    args
+}
+
+fn sanitize_agent_args(args: Vec<String>) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "--allowed-mcp-server-names" || arg == "--tools" {
+            skip_next = true;
+            continue;
+        }
+        result.push(arg);
+    }
+    result
+}
+
+fn join_args_line(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.is_empty() || arg.chars().any(|ch| ch.is_whitespace() || ch == '"') {
+                format!("\"{}\"", arg.replace('"', "\\\""))
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn truncate_text(value: &str, limit: usize) -> String {
+    if value.chars().count() <= limit {
+        return value.to_string();
+    }
+    value.chars().take(limit).collect::<String>() + "…"
+}
+
+fn ai_settings_path() -> PathBuf {
+    settings_path().with_file_name("ai_reply.json")
+}
+
+fn load_ai_settings() -> AiReplySettings {
+    let mut settings: AiReplySettings = std::fs::read_to_string(ai_settings_path())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    let original = split_args_line(&settings.agent_args);
+    let mut cleaned = sanitize_agent_args(original.clone());
+    if settings.sessions.iter().any(|session| session.session_mode != "fresh") {
+        cleaned.retain(|value| value != "--no-session-persistence");
+    }
+    if cleaned.len() != original.len() {
+        settings.agent_args = join_args_line(&cleaned);
+    }
+    settings
+}
+
+fn save_ai_settings(settings: &AiReplySettings) -> Result<(), String> {
+    let path = ai_settings_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
+    std::fs::write(path, text).map_err(|error| error.to_string())
 }
 
 fn save_settings(settings: &AppSettings) -> Result<(), String> {
@@ -331,9 +648,55 @@ fn ui_color(light: u32) -> gpui_kit::Rgba {
         0xb07a2c => 0xd6a34c,
         0xfbf1e8 | 0xfaecda | 0xfdf0e9 | 0xfbf4e8 => 0x3a3128,
         0xdbeafe | 0xeef1f6 | 0xf3f4f6 => 0x2e3640,
+        0xe7f6ec => 0x1f3a2a,
+        0xeef7f1 => 0x22372b,
+        0xf0fdf4 => 0x1c2f24,
+        0xfef2f2 => 0x3a2424,
+        0xfbfbfc => 0x323232,
+        0xbbf7d0 => 0x2f5c40,
+        0xfecaca => 0x6b3030,
+        0x14532d => 0xc8e6d2,
+        0x15803d => 0x4ade80,
+        0xb91c1c | 0x7f1d1d => 0xfca5a5,
+        0x374151 => 0xd1d5db,
+        0x7c3aed => 0xa78bfa,
+        0xb45309 | 0x78350f => 0xfbbf24,
+        0xd1d5db => 0x4b4b4b,
+        0xcbd5e1 => 0x4a4a4a,
+        0x9ca3af => 0x8b8b8b,
         other => other,
     };
     rgb(mapped)
+}
+
+fn mention_query(text: &str) -> Option<(usize, String)> {
+    let at = text.rfind('@')?;
+    let after = &text[at + 1..];
+    if after.chars().any(char::is_whitespace) || after.chars().count() > 24 {
+        return None;
+    }
+    Some((at, after.to_string()))
+}
+
+fn mention_targets(text: &str, members: &[(String, String)]) -> Vec<String> {
+    let mut targets = Vec::new();
+    for (username, display) in members {
+        let token = format!("@{display}");
+        let mut offset = 0;
+        while let Some(found) = text[offset..].find(&token) {
+            let end = offset + found + token.len();
+            let boundary = text[end..]
+                .chars()
+                .next()
+                .map(|value| value.is_whitespace() || value == ',')
+                .unwrap_or(true);
+            if boundary && !targets.contains(username) {
+                targets.push(username.clone());
+            }
+            offset = end;
+        }
+    }
+    targets
 }
 
 fn settings_step_row(text: &str, done: bool) -> AnyElement {
@@ -392,6 +755,11 @@ const ICON_FINDER: &[u8] = include_bytes!("../assets/icons/finder.svg");
 const ICON_MINI: &[u8] = include_bytes!("../assets/icons/mini.svg");
 const ICON_PAYMENTS: &[u8] = include_bytes!("../assets/icons/payments.svg");
 const ICON_SEARCH: &[u8] = include_bytes!("../assets/icons/search.svg");
+const ICON_AI: &[u8] = include_bytes!("../assets/icons/ai.svg");
+const ICON_EMOJI: &[u8] = include_bytes!("../assets/icons/emoji.svg");
+const ICON_IMAGE: &[u8] = include_bytes!("../assets/icons/image.svg");
+const ICON_FOLDER: &[u8] = include_bytes!("../assets/icons/folder.svg");
+const ICON_MIC: &[u8] = include_bytes!("../assets/icons/mic.svg");
 const ICON_SETTINGS: &[u8] = include_bytes!("../assets/icons/settings.svg");
 
 include!(concat!(env!("OUT_DIR"), "/emoji_assets.rs"));
@@ -580,6 +948,17 @@ struct MediaViewStyle {
 }
 
 impl Store {
+    fn native_actions(&self) -> bool {
+        matches!(self, Self::Realtime(store) if store.native_actions())
+    }
+
+    fn action_client(&self) -> Option<wechat_data::ActionClient> {
+        match self {
+            Self::Realtime(store) if store.native_actions() => Some(store.action_client()),
+            _ => None,
+        }
+    }
+
     fn account(&self) -> &str {
         match self {
             Self::Decrypted(store) => store.account(),
@@ -729,20 +1108,39 @@ fn realtime_store_from_env() -> Option<wechat_data::Result<(RealtimeAccountStore
     } else {
         return None;
     };
+    let mut native_bridge = std::env::var_os("WCE_NATIVE_BRIDGE").map(PathBuf::from);
+    if native_bridge
+        .as_ref()
+        .map(|path| !path.is_file())
+        .unwrap_or(true)
+        && let Some(dir) = Path::new(&broker).parent()
+    {
+        let candidate = dir.join("text_bridge.dll");
+        if candidate.is_file() {
+            native_bridge = Some(candidate);
+        }
+    }
+    let options = wechat_data::BrokerOptions {
+        native_bridge: native_bridge.clone(),
+        native_work_dir: None,
+        native_timeout_ms: None,
+    };
     let params = RealtimeParams {
         broker: PathBuf::from(&broker),
         root: PathBuf::from(&root),
         key: key.clone(),
         raw_key,
         account: account.clone(),
+        native_bridge,
     };
     Some(
-        RealtimeAccountStore::open_with_account(
+        RealtimeAccountStore::open_with_options(
             Path::new(&broker),
             Path::new(&root),
             &key,
             raw_key,
             account.as_deref(),
+            &options,
         )
         .map(|store| (store, params)),
     )
@@ -762,16 +1160,30 @@ fn image_keys_for_store(store: &Store, key_store: Option<&Path>) -> Option<Image
     }
     let store_path = key_store
         .map(Path::to_path_buf)
-        .or_else(|| std::env::var("WECHAT_KEY_STORE").ok().map(PathBuf::from))?;
-    match store {
+        .or_else(|| std::env::var("WECHAT_KEY_STORE").ok().map(PathBuf::from));
+    let stored = store_path.as_ref().and_then(|store_path| match store {
         Store::Realtime(realtime) => {
-            find_image_keys_for_db_storage(&store_path, realtime.account_dir()).ok()?
+            find_image_keys_for_db_storage(store_path, realtime.account_dir())
+                .ok()
+                .flatten()
         }
-        Store::Decrypted(decrypted) => {
-            let keys = KeyStore::load(&store_path).ok()?;
-            keys.image_keys_for_account(decrypted.account())
-        }
+        Store::Decrypted(decrypted) => KeyStore::load(store_path)
+            .ok()
+            .and_then(|keys| keys.image_keys_for_account(decrypted.account())),
+    });
+    if stored.is_some() {
+        return stored;
     }
+    let account_dir = match store {
+        Store::Realtime(realtime) => realtime.account_root().map(Path::to_path_buf),
+        Store::Decrypted(decrypted) => Some(decrypted.account_dir().to_path_buf()),
+    }?;
+    recover_image_key_for_account(&account_dir, None)
+        .ok()
+        .map(|found| ImageKeys {
+            aes_key: found.aes_key,
+            xor_key: Some(found.xor_key),
+        })
 }
 
 fn parse_xor_key(value: &str) -> Option<u8> {
@@ -803,6 +1215,13 @@ pub struct WeChatApp {
     contact_query: String,
     selected_contact: Option<String>,
     contact_input: Option<Entity<InputState>>,
+    composer_input: Option<Entity<InputState>>,
+    mention_members: Vec<(String, String)>,
+    mention_members_for: Option<String>,
+    _mention_subscription: Option<Subscription>,
+    _composer_subscription: Option<Subscription>,
+    composer_clear_pending: bool,
+    sending: bool,
     _contact_subscription: Option<Subscription>,
     contacts_scroll: gpui_kit::base::VirtualListScrollHandle,
     sns_posts: Vec<SnsPost>,
@@ -810,6 +1229,11 @@ pub struct WeChatApp {
     sns_author: Option<String>,
     sns_query: String,
     sns_input: Option<Entity<InputState>>,
+    sns_compose_input: Option<Entity<InputState>>,
+    _sns_compose_subscription: Option<Subscription>,
+    sns_publishing: bool,
+    sns_action_pending: bool,
+    sns_clear_pending: bool,
     _sns_subscription: Option<Subscription>,
     sns_scroll: ScrollHandle,
     sns_author_scroll: ScrollHandle,
@@ -863,6 +1287,29 @@ pub struct WeChatApp {
     setup_mode: bool,
     init_busy: bool,
     monitor_started: bool,
+    ai_settings: AiReplySettings,
+    ai_selected: Option<String>,
+    ai_status: String,
+    ai_agents: Vec<wechat_watch::DetectedAgent>,
+    ai_prompt_input: Option<Entity<InputState>>,
+    ai_args_input: Option<Entity<InputState>>,
+    ai_stream_args_input: Option<Entity<InputState>>,
+    _ai_prompt_subscription: Option<Subscription>,
+    _ai_args_subscription: Option<Subscription>,
+    _ai_stream_args_subscription: Option<Subscription>,
+    ai_watcher: Option<std::process::Child>,
+    ai_transcript: Vec<AiTranscriptEntry>,
+    ai_transcript_sig: Option<(String, usize, String)>,
+    _ai_transcript_task: Option<Task<()>>,
+    ai_sessions_scroll: gpui_kit::base::VirtualListScrollHandle,
+    ai_settings_open: bool,
+    ai_session_draft: Option<AiSessionSetting>,
+    ai_tree_expanded: HashSet<String>,
+    ai_session_cache: HashMap<String, wechat_watch::SessionStore>,
+    ai_agent_session: Option<String>,
+    ai_expanded_blocks: HashSet<String>,
+    ai_transcript_scroll: ScrollHandle,
+    ai_session_store: Option<wechat_watch::SessionStore>,
 }
 
 impl WeChatApp {
@@ -927,6 +1374,29 @@ impl WeChatApp {
         {
             settings.broker = Some(broker);
         }
+        if settings.native_bridge.is_none() {
+            settings.native_bridge = find_native_bridge(&settings);
+        }
+        if let Some(path) = settings.account_path.clone() {
+            for sibling in discover_sibling_accounts(&path) {
+                if !settings.accounts.iter().any(|profile| profile.path == sibling) {
+                    settings.accounts.push(AccountProfile {
+                        path: sibling,
+                        key_store: None,
+                    });
+                }
+            }
+            let key_store = settings.key_store.clone();
+            if let Some(existing) = settings
+                .accounts
+                .iter_mut()
+                .find(|profile| profile.path == path)
+            {
+                existing.key_store = key_store;
+            } else {
+                settings.accounts.push(AccountProfile { path, key_store });
+            }
+        }
         self.settings = settings.clone();
         self.settings_draft = settings.clone();
         self.remote_cdn_enabled = settings.remote_cdn && remote_cdn_allowed();
@@ -981,12 +1451,13 @@ impl WeChatApp {
         };
         match find_key_for_db_storage_with_account(key_store, &db_storage) {
             Ok((key, raw_key, account)) => {
-                match RealtimeAccountStore::open_with_account(
+                match RealtimeAccountStore::open_with_options(
                     broker,
                     &db_storage,
                     &key,
                     raw_key,
                     account.as_deref(),
+                    &broker_options(&settings),
                 ) {
                     Ok(store) => {
                         self.realtime_params = Some(RealtimeParams {
@@ -995,6 +1466,7 @@ impl WeChatApp {
                             key,
                             raw_key,
                             account,
+                            native_bridge: native_bridge_for(&settings),
                         });
                         if self.adopt_store(Store::Realtime(Box::new(store))) {
                             self.settings_open = false;
@@ -1016,14 +1488,23 @@ impl WeChatApp {
 
     pub fn open_realtime(broker_exe: &Path, root: &Path, key_hex: &str) -> Self {
         let mut app = Self::blank();
+        let native_bridge = std::env::var_os("WCE_NATIVE_BRIDGE").map(PathBuf::from);
         app.realtime_params = Some(RealtimeParams {
             broker: broker_exe.to_path_buf(),
             root: root.to_path_buf(),
             key: key_hex.to_string(),
             raw_key: false,
             account: None,
+            native_bridge: native_bridge.clone(),
         });
-        match RealtimeAccountStore::open(broker_exe, root, key_hex, false) {
+        let options = wechat_data::BrokerOptions {
+            native_bridge,
+            native_work_dir: None,
+            native_timeout_ms: None,
+        };
+        match RealtimeAccountStore::open_with_options(
+            broker_exe, root, key_hex, false, None, &options,
+        ) {
             Ok(store) => {
                 app.adopt_store(Store::Realtime(Box::new(store)));
             }
@@ -1126,7 +1607,10 @@ impl WeChatApp {
         }
         settings.media_root = Some(storage.clone());
         let db_storage = locate_db_storage(&wechat);
-        let key_path = storage.join("account_keys.json");
+        let key_path = settings
+            .key_store
+            .clone()
+            .unwrap_or_else(|| storage.join("account_keys.json"));
         if !key_path.exists()
             && let Some(found) = find_existing_key_store(&storage, &wechat, &settings)
             && found != key_path
@@ -1183,6 +1667,13 @@ impl WeChatApp {
             contact_query: String::new(),
             selected_contact: None,
             contact_input: None,
+            composer_input: None,
+            mention_members: Vec::new(),
+            mention_members_for: None,
+            _mention_subscription: None,
+            _composer_subscription: None,
+            composer_clear_pending: false,
+            sending: false,
             _contact_subscription: None,
             contacts_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
             sns_posts: Vec::new(),
@@ -1190,6 +1681,11 @@ impl WeChatApp {
             sns_author: None,
             sns_query: String::new(),
             sns_input: None,
+            sns_compose_input: None,
+            _sns_compose_subscription: None,
+            sns_publishing: false,
+            sns_action_pending: false,
+            sns_clear_pending: false,
             _sns_subscription: None,
             sns_scroll: ScrollHandle::new(),
             sns_author_scroll: ScrollHandle::new(),
@@ -1243,6 +1739,29 @@ impl WeChatApp {
             setup_mode: false,
             init_busy: false,
             monitor_started: false,
+            ai_settings: load_ai_settings(),
+            ai_selected: None,
+            ai_status: String::new(),
+            ai_agents: Vec::new(),
+            ai_prompt_input: None,
+            ai_args_input: None,
+            ai_stream_args_input: None,
+            _ai_prompt_subscription: None,
+            _ai_args_subscription: None,
+            _ai_stream_args_subscription: None,
+            ai_watcher: None,
+            ai_transcript: Vec::new(),
+            ai_transcript_sig: None,
+            _ai_transcript_task: None,
+            ai_sessions_scroll: gpui_kit::base::VirtualListScrollHandle::new(),
+            ai_settings_open: false,
+            ai_session_draft: None,
+            ai_tree_expanded: HashSet::new(),
+            ai_session_cache: HashMap::new(),
+            ai_agent_session: None,
+            ai_expanded_blocks: HashSet::new(),
+            ai_transcript_scroll: ScrollHandle::new(),
+            ai_session_store: None,
         }
     }
 
@@ -1630,6 +2149,14 @@ impl WeChatApp {
     }
 
     fn switch_view(&mut self, view: View, cx: &mut Context<Self>) {
+        if self.view == View::AiReply && view != View::AiReply {
+            if self.ai_settings_open {
+                self.ai_settings_open = false;
+                self.ai_session_draft = None;
+            } else {
+                self.ai_save_inputs(cx);
+            }
+        }
         self.view = view;
         match view {
             View::Chat | View::Search => {}
@@ -1642,6 +2169,11 @@ impl WeChatApp {
             View::Finder => self.load_finder(),
             View::MiniPrograms => self.load_mini_programs(),
             View::Payments => self.load_payments(),
+            View::AiReply => {
+                self.prepare_ai_reply();
+                self.ai_load_transcript();
+                self.ensure_ai_transcript_task(cx);
+            }
         }
         cx.notify();
     }
@@ -1684,7 +2216,81 @@ impl WeChatApp {
         }
     }
 
+    fn insert_mention(
+        &mut self,
+        display: &str,
+        at: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(state) = self.composer_input.clone() else {
+            return;
+        };
+        let current = state.read(cx).value().to_string();
+        if at > current.len() || !current[at..].starts_with('@') {
+            return;
+        }
+        let after = &current[at + 1..];
+        let rest_start = after
+            .find(char::is_whitespace)
+            .unwrap_or(after.len());
+        let rest = after[rest_start..].trim_start();
+        let mut next = format!("{}@{display}", &current[..at]);
+        if !rest.is_empty() {
+            next.push(' ');
+            next.push_str(rest);
+        } else {
+            next.push(' ');
+        }
+        state.update(cx, |state, cx| state.set_value(&next, window, cx));
+    }
+
+    fn load_mention_members(&mut self, username: &str) {
+        if self.mention_members_for.as_deref() == Some(username) {
+            return;
+        }
+        self.mention_members_for = Some(username.to_string());
+        self.mention_members = if username.ends_with("@chatroom") {
+            match self.store.as_ref() {
+                Some(Store::Realtime(account)) => {
+                    let mut members = account.group_members(username).unwrap_or_default();
+                    let names: Vec<String> =
+                        members.iter().map(|(wxid, _)| wxid.clone()).collect();
+                    let contacts = account.load_contacts_for(&names).unwrap_or_default();
+                    for (wxid, display) in members.iter_mut() {
+                        if let Some(contact) = contacts
+                            .get(wxid)
+                            .filter(|_| display == wxid || display.trim().is_empty())
+                        {
+                            let name = [
+                                contact.remark.as_str(),
+                                contact.display_name.as_str(),
+                                contact.nick_name.as_str(),
+                            ]
+                            .into_iter()
+                            .find(|value| !value.trim().is_empty());
+                            if let Some(name) = name {
+                                *display = name.to_string();
+                            }
+                        }
+                    }
+                    members.retain(|(wxid, _)| wxid != account.self_username());
+                    members.sort_by(|a, b| {
+                        a.1.to_lowercase()
+                            .cmp(&b.1.to_lowercase())
+                            .then_with(|| a.0.cmp(&b.0))
+                    });
+                    members
+                }
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+    }
+
     fn select_session(&mut self, username: String) {
+        self.load_mention_members(&username);
         let timing = std::env::var_os("WCE_TIMING").is_some();
         let started = std::time::Instant::now();
         self.selected = Some(username.clone());
@@ -2016,6 +2622,151 @@ impl WeChatApp {
         self._contact_subscription = Some(subscription);
     }
 
+    fn ensure_sns_compose_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.sns_compose_input.is_some() {
+            return;
+        }
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder("写点什么…"));
+        let subscription = cx.subscribe(&state, |this, _state, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.publish_moments_text(cx);
+            }
+        });
+        self.sns_compose_input = Some(state);
+        self._sns_compose_subscription = Some(subscription);
+    }
+
+    fn publish_moments_text(&mut self, cx: &mut Context<Self>) {
+        if self.sns_publishing {
+            return;
+        }
+        let Some(state) = self.sns_compose_input.clone() else {
+            return;
+        };
+        let text = state.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let Some(client) = self.store.as_ref().and_then(Store::action_client) else {
+            self.status = "未配置 text_bridge.dll，无法发布".to_string();
+            cx.notify();
+            return;
+        };
+        self.sns_publishing = true;
+        self.status = "正在发布朋友圈…".to_string();
+        cx.notify();
+        let background = cx
+            .background_executor()
+            .spawn(async move { client.publish_moments(&text, &[], 1) });
+        let task = cx.spawn(async move |this, cx| {
+            let result = background.await;
+            let message = match &result {
+                Ok(_) => "朋友圈已发布".to_string(),
+                Err(error) => format!("发布失败: {error}"),
+            };
+            let success = result.is_ok();
+            let _ = this.update(cx, |this, cx| {
+                this.sns_publishing = false;
+                this.status = message;
+                if success {
+                    this.sns_clear_pending = true;
+                    this.sns_loaded = false;
+                    this.load_sns_page(true, cx);
+                }
+                cx.notify();
+            });
+        });
+        self.remote_tasks.push(task);
+    }
+
+    fn like_moments_post(&mut self, tid: i64, user: String, cx: &mut Context<Self>) {
+        if self.sns_action_pending {
+            return;
+        }
+        let Some(feed) = u64::try_from(tid).ok().filter(|value| *value != 0) else {
+            self.status = "朋友圈 ID 无效".to_string();
+            cx.notify();
+            return;
+        };
+        let Some(client) = self.store.as_ref().and_then(Store::action_client) else {
+            self.status = "未配置 text_bridge.dll，无法点赞".to_string();
+            cx.notify();
+            return;
+        };
+        self.sns_action_pending = true;
+        self.status = "正在点赞…".to_string();
+        cx.notify();
+        let background = cx
+            .background_executor()
+            .spawn(async move { client.like_moments(feed, &user) });
+        let task = cx.spawn(async move |this, cx| {
+            let result = background.await;
+            let _ = this.update(cx, |this, cx| {
+                this.sns_action_pending = false;
+                this.status = match result {
+                    Ok(_) => "已点赞".to_string(),
+                    Err(error) => format!("点赞失败: {error}"),
+                };
+                this.sns_loaded = false;
+                this.load_sns_page(true, cx);
+                cx.notify();
+            });
+        });
+        self.remote_tasks.push(task);
+    }
+
+    fn comment_image_moments_post(&mut self, tid: i64, user: String, cx: &mut Context<Self>) {
+        if self.sns_action_pending {
+            return;
+        }
+        let Some(feed) = u64::try_from(tid).ok().filter(|value| *value != 0) else {
+            self.status = "朋友圈 ID 无效".to_string();
+            cx.notify();
+            return;
+        };
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("选择评论图片".into()),
+        });
+        let task = cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let image = path.display().to_string();
+                let _ = this.update(cx, |this, cx| {
+                    let Some(client) = this.store.as_ref().and_then(Store::action_client) else {
+                        this.status = "未配置 text_bridge.dll".to_string();
+                        cx.notify();
+                        return;
+                    };
+                    this.sns_action_pending = true;
+                    this.status = "正在发送图片评论…".to_string();
+                    cx.notify();
+                    let background = cx
+                        .background_executor()
+                        .spawn(async move { client.comment_image_moments(feed, &user, &image) });
+                    let task = cx.spawn(async move |this, cx| {
+                        let result = background.await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.sns_action_pending = false;
+                            this.status = match result {
+                                Ok(_) => "图片评论已发送".to_string(),
+                                Err(error) => format!("图片评论失败: {error}"),
+                            };
+                            this.sns_loaded = false;
+                            this.load_sns_page(true, cx);
+                            cx.notify();
+                        });
+                    });
+                    this.remote_tasks.push(task);
+                });
+            }
+        });
+        self.remote_tasks.push(task);
+    }
+
     fn ensure_sns_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.sns_input.is_some() {
             return;
@@ -2029,6 +2780,344 @@ impl WeChatApp {
         });
         self.sns_input = Some(state);
         self._sns_subscription = Some(subscription);
+    }
+
+    fn ensure_composer_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.composer_input.is_some() {
+            return;
+        }
+        let state = cx.new(|cx| InputState::new(window, cx).placeholder("输入消息，Enter 发送"));
+        let subscription = cx.subscribe(&state, |this, _state, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.send_current_message(cx);
+            }
+        });
+        self.composer_input = Some(state);
+        self._composer_subscription = Some(subscription);
+    }
+
+    fn send_attachment(&mut self, kind: &'static str, cx: &mut Context<Self>) {
+        if self.sending {
+            return;
+        }
+        let Some(recipient) = self.selected.clone() else {
+            return;
+        };
+        let Some(client) = self.store.as_ref().and_then(Store::action_client) else {
+            self.status = "未配置 text_bridge.dll，无法发送".to_string();
+            cx.notify();
+            return;
+        };
+        let (prompt, action) = match kind {
+            "image" => ("选择图片", "message.send_image"),
+            "file" => ("选择文件", "message.send_file"),
+            "voice" => ("选择语音文件", "message.send_voice"),
+            "emoticon" => ("选择表情图片", "message.send_emoticon"),
+            _ => return,
+        };
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(prompt.into()),
+        });
+        let task = cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let path = path.display().to_string();
+                let _ = this.update(cx, |this, cx| {
+                    this.sending = true;
+                    cx.notify();
+                    let background = cx.background_executor().spawn(async move {
+                        match action {
+                            "message.send_image" => client.send_image(&recipient, &path),
+                            "message.send_file" => client.send_file(&recipient, &path),
+                            "message.send_voice" => client.send_voice(&recipient, &path, 3000),
+                            _ => client.send_emoticon(&recipient, &path),
+                        }
+                    });
+                    let task = cx.spawn(async move |this, cx| {
+                        let result = background.await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.sending = false;
+                            match result {
+                                Ok(_) => this.status.clear(),
+                                Err(error) => this.status = format!("附件发送失败: {error}"),
+                            }
+                            cx.notify();
+                        });
+                    });
+                    this.remote_tasks.push(task);
+                });
+            }
+        });
+        self.remote_tasks.push(task);
+    }
+
+    fn send_current_message(&mut self, cx: &mut Context<Self>) {
+        if self.sending {
+            return;
+        }
+        let Some(state) = self.composer_input.clone() else {
+            return;
+        };
+        let text = state.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let Some(recipient) = self.selected.clone() else {
+            return;
+        };
+        let Some(client) = self.store.as_ref().and_then(Store::action_client) else {
+            self.status = match self.store.as_ref() {
+                Some(Store::Realtime(_)) => "未配置 text_bridge.dll，无法发送".to_string(),
+                _ => "只读模式不能发送".to_string(),
+            };
+            cx.notify();
+            return;
+        };
+        let members = if recipient.ends_with("@chatroom") {
+            mention_targets(&text, &self.mention_members).join(",")
+        } else {
+            String::new()
+        };
+        self.sending = true;
+        cx.notify();
+        let target = recipient.clone();
+        let background = cx.background_executor().spawn(async move {
+            if members.is_empty() {
+                client.send_text(&target, &text)
+            } else {
+                client.send_at_text(&target, &text, &members)
+            }
+        });
+        let task = cx.spawn(async move |this, cx| {
+            let result = background.await;
+            let success = result.is_ok();
+            let recipient = recipient.clone();
+            let _ = this.update(cx, |this, cx| {
+                this.sending = false;
+                if let Err(error) = &result {
+                    this.status = format!("发送失败: {error}");
+                }
+                if success {
+                    this.status.clear();
+                    this.composer_clear_pending = true;
+                    this.session_cache.remove(&recipient);
+                }
+                cx.notify();
+            });
+            if !success {
+                return;
+            }
+            cx.background_executor()
+                .timer(Duration::from_millis(1200))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.selected.as_deref() == Some(recipient.as_str()) {
+                    this.session_cache.remove(&recipient);
+                    this.select_session(recipient.clone());
+                }
+                cx.notify();
+            });
+        });
+        self.remote_tasks.push(task);
+    }
+
+    fn composer_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (enabled, hint) = match self.store.as_ref() {
+            Some(store) if store.native_actions() => (true, ""),
+            Some(Store::Realtime(_)) => (false, "未配置 text_bridge.dll，无法发送"),
+            _ => (false, "只读模式不能发送"),
+        };
+        let is_group = self
+            .selected
+            .as_deref()
+            .map(|value| value.ends_with("@chatroom"))
+            .unwrap_or(false);
+        let text = self
+            .composer_input
+            .as_ref()
+            .map(|state| state.read(cx).value().to_string())
+            .unwrap_or_default();
+        let has_text = !text.trim().is_empty();
+        let input = self.composer_input.as_ref().map(|state| {
+            Input::new(state)
+                .appearance(false)
+                .bordered(false)
+                .cleanable(false)
+                .h_full()
+                .disabled(!enabled || self.sending)
+                .aria_label("输入消息")
+                .into_any_element()
+        });
+        let mention_query = if is_group && enabled {
+            mention_query(&text)
+        } else {
+            None
+        };
+        let mention_popup: Option<AnyElement> = match mention_query {
+            Some((at, query)) => {
+                let needle = query.to_lowercase();
+                let members: Vec<(String, String)> = self
+                    .mention_members
+                    .iter()
+                    .filter(|(username, display)| {
+                        needle.is_empty()
+                            || display.to_lowercase().contains(&needle)
+                            || username.to_lowercase().contains(&needle)
+                    })
+                    .take(8)
+                    .cloned()
+                    .collect();
+                if members.is_empty() {
+                    None
+                } else {
+                    let mut list = div().flex().flex_col().py_1();
+                    for (username, display) in members {
+                        let label = display.clone();
+                        let name = username.clone();
+                        list = list.child(
+                            div()
+                                .id(ElementId::Name(format!("mention:{username}").into()))
+                                .aria_label(display.clone())
+                                .px_3()
+                                .py_2()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .cursor_pointer()
+                                .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.insert_mention(&label, at, window, cx);
+                                }))
+                                .child(div().text_sm().child(display))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .text_color(ui_color(0x9ca3af))
+                                        .truncate()
+                                        .child(name),
+                                ),
+                        );
+                    }
+                    Some(
+                        div()
+                            .id("composer-mention-popup")
+                            .mx_3()
+                            .mt_2()
+                            .max_h(px(220.))
+                            .overflow_y_scroll()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(ui_color(0xe5e7eb))
+                            .bg(ui_color(0xffffff))
+                            .child(list)
+                            .into_any_element(),
+                    )
+                }
+            }
+            None => None,
+        };
+        let mut tools = div().flex().items_center().gap(px(2.));
+        if enabled {
+            for (kind, label, icon) in [
+                ("emoticon", "表情", ICON_EMOJI),
+                ("image", "图片", ICON_IMAGE),
+                ("file", "文件", ICON_FOLDER),
+                ("voice", "语音", ICON_MIC),
+            ] {
+                tools = tools.child(
+                    div()
+                        .id(ElementId::Name(format!("attach:{kind}").into()))
+                        .aria_label(label)
+                        .w(px(28.))
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                        .on_click(cx.listener(move |this, _, _, cx| this.send_attachment(kind, cx)))
+                        .child(
+                            svg()
+                                .data(icon)
+                                .w(px(18.))
+                                .h(px(18.))
+                                .text_color(ui_color(0x6b7280)),
+                        ),
+                );
+            }
+        }
+        let send_enabled = enabled && has_text && !self.sending;
+        let send_label = if self.sending { "发送中…" } else { "发送" };
+        let send = div()
+            .id("send-message")
+            .aria_label("发送消息")
+            .test_support()
+            .flex_none()
+            .px_4()
+            .py_1()
+            .rounded_md()
+            .bg(if send_enabled {
+                ui_color(0x07c160)
+            } else {
+                ui_color(0xe5e7eb)
+            })
+            .text_color(if send_enabled {
+                rgb(0xffffff)
+            } else {
+                ui_color(0x9ca3af)
+            })
+            .text_xs()
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| this.send_current_message(cx)))
+            .child(send_label);
+        let input_area = div()
+            .min_h(px(54.))
+            .px_3()
+            .pt_2()
+            .child(if enabled {
+                input.unwrap_or_else(|| div().into_any_element())
+            } else {
+                div()
+                    .text_xs()
+                    .text_color(ui_color(0x8a8a8a))
+                    .child(hint.to_string())
+                    .into_any_element()
+            });
+        div()
+            .px_4()
+            .pb_3()
+            .pt_2()
+            .bg(ui_color(0xf7f7f7))
+            .child(
+                div()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(ui_color(0xe5e7eb))
+                    .bg(ui_color(0xffffff))
+                    .flex()
+                    .flex_col()
+                    .when_some(mention_popup, |this, popup| this.child(popup))
+                    .child(input_area)
+                    .child(
+                        div()
+                            .px_2()
+                            .pb_2()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(tools)
+                            .child(div().flex_1())
+                            .child(send),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn filtered_contacts(&self) -> Vec<ContactItem> {
@@ -2127,12 +3216,17 @@ impl WeChatApp {
             self.search_note = "正在搜索…".to_string();
             let task_query = query.clone();
             let background = cx.background_executor().spawn(async move {
-                RealtimeAccountStore::open_with_account(
+                RealtimeAccountStore::open_with_options(
                     &params.broker,
                     &params.root,
                     &params.key,
                     params.raw_key,
                     params.account.as_deref(),
+                    &wechat_data::BrokerOptions {
+                        native_bridge: params.native_bridge.clone(),
+                        native_work_dir: None,
+                        native_timeout_ms: None,
+                    },
                 )
                 .and_then(|store| store.search_messages(&task_query, 50))
             });
@@ -3624,6 +4718,13 @@ impl WeChatApp {
         }
         if self.view == View::Moments {
             self.ensure_sns_input(window, cx);
+            self.ensure_sns_compose_input(window, cx);
+            if self.sns_clear_pending {
+                self.sns_clear_pending = false;
+                if let Some(state) = self.sns_compose_input.clone() {
+                    state.update(cx, |state, cx| state.set_value("", window, cx));
+                }
+            }
         }
 
         let search_input = self.store.as_ref().and_then(|_| {
@@ -3741,6 +4842,18 @@ impl WeChatApp {
             .as_ref()
             .map(|store| format!("微信 · {}", store.account()))
             .unwrap_or_else(|| "微信数据".to_string());
+        if self.composer_clear_pending {
+            self.composer_clear_pending = false;
+            if let Some(state) = self.composer_input.clone() {
+                state.update(cx, |state, cx| state.set_value("", window, cx));
+            }
+        }
+        let composer = if self.store.is_some() && self.selected.is_some() {
+            self.ensure_composer_input(window, cx);
+            Some(self.composer_bar(cx))
+        } else {
+            None
+        };
         let empty_hint = if self.store.is_none() {
             if self.accounts.is_empty() {
                 Some("未找到账号数据")
@@ -3840,7 +4953,8 @@ impl WeChatApp {
                                     )
                                     .child(message_rail)
                             }),
-                    ),
+                    )
+                    .when_some(composer, |this, composer| this.child(composer)),
             )
             .into_any_element()
     }
@@ -3896,6 +5010,7 @@ impl WeChatApp {
             View::MiniPrograms => ICON_MINI,
             View::Payments => ICON_PAYMENTS,
             View::Search => ICON_SEARCH,
+            View::AiReply => ICON_AI,
         };
         svg()
             .data(data)
@@ -3935,6 +5050,7 @@ impl WeChatApp {
                     .child(self.avatar_chip(&avatar_key, "我", 34.)),
             )
             .child(self.nav_item(View::Chat, "聊天", cx))
+            .child(self.nav_item(View::AiReply, "AI 回复", cx))
             .child(self.nav_item(View::Moments, "朋友圈", cx))
             .child(self.nav_item(View::Contacts, "联系人", cx))
             .child(self.nav_item(View::Finder, "视频号", cx))
@@ -3998,6 +5114,8 @@ impl WeChatApp {
                     match field {
                         SettingsField::Account => this.settings_draft.account_path = Some(path),
                         SettingsField::Storage => this.settings_draft.storage_dir = Some(path),
+                        SettingsField::KeyStore => this.settings_draft.key_store = Some(path),
+                        SettingsField::Bridge => this.settings_draft.native_bridge = Some(path),
                     }
                     cx.notify();
                 });
@@ -4205,7 +5323,184 @@ impl WeChatApp {
                                 },
                                 draft.storage_dir.as_ref(),
                                 cx,
+                            ))
+                            .child(self.settings_path_row(
+                                PathRowSpec {
+                                    label: "账号密钥文件",
+                                    hint: "account_keys.json；切换账号时使用对应文件",
+                                    field: SettingsField::KeyStore,
+                                    directory: false,
+                                    prompt: "选择 account_keys.json",
+                                },
+                                draft.key_store.as_ref(),
+                                cx,
                             )),
+                    )
+                    .child({
+                        let mut accounts_list = div().flex().flex_col().gap_1();
+                        for profile in draft.accounts.clone() {
+                            let path = profile.path.clone();
+                            let label = path
+                                .parent()
+                                .and_then(|parent| parent.file_name())
+                                .or_else(|| path.file_name())
+                                .map(|value| value.to_string_lossy().to_string())
+                                .unwrap_or_else(|| path.display().to_string());
+                            let active = draft.account_path.as_ref() == Some(&path);
+                            let switch_path = path.clone();
+                            let switch_key = profile.key_store.clone();
+                            let remove_path = path.clone();
+                            accounts_list = accounts_list.child(
+                                div()
+                                    .id(ElementId::Name(format!("account:{}", path.display()).into()))
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .px_2()
+                                    .py_2()
+                                    .rounded_md()
+                                    .when(active, |this| this.bg(ui_color(0xf3faf6)))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_col()
+                                            .child(div().text_sm().truncate().child(label))
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(ui_color(0x8a8a8a))
+                                                    .truncate()
+                                                    .child(path.display().to_string()),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id(ElementId::Name(format!("account-switch:{}", path.display()).into()))
+                                            .aria_label("切换账号")
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                                            .bg(ui_color(0xffffff))
+                                            .text_xs()
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                let mut settings = this.settings_draft.clone();
+                                                settings.account_path = Some(switch_path.clone());
+                                                if switch_key.is_some() {
+                                                    settings.key_store = switch_key.clone();
+                                                }
+                                                this.settings_draft = settings.clone();
+                                                this.apply_settings(settings, true);
+                                                cx.notify();
+                                            }))
+                                            .child(if active { "当前" } else { "切换" }),
+                                    )
+                                    .child(
+                                        div()
+                                            .id(ElementId::Name(format!("account-remove:{}", path.display()).into()))
+                                            .aria_label("移除账号")
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_md()
+                                            .text_xs()
+                                            .text_color(ui_color(0x8a8a8a))
+                                            .cursor_pointer()
+                                            .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.settings_draft
+                                                    .accounts
+                                                    .retain(|item| item.path != remove_path);
+                                                let _ = save_settings(&this.settings_draft);
+                                                cx.notify();
+                                            }))
+                                            .child("移除"),
+                                    ),
+                            );
+                        }
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(div().text_xs().text_color(ui_color(0x8a8a8a)).child("多账号"))
+                            .child(accounts_list)
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ui_color(0x8a8a8a))
+                                    .child("切换账号会重新连接；密钥文件缺失时请先初始化该账号"),
+                            )
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ui_color(0x8a8a8a))
+                                    .child("动作（可选）"),
+                            )
+                            .child(self.settings_path_row(
+                                PathRowSpec {
+                                    label: "动作桥 DLL",
+                                    hint: "text_bridge.dll；配置后聊天页可发送文本，非商业许可",
+                                    field: SettingsField::Bridge,
+                                    directory: false,
+                                    prompt: "选择 text_bridge.dll",
+                                },
+                                draft.native_bridge.as_ref(),
+                                cx,
+                            ))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_4()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .child(div().text_sm().child("注入微信进程"))
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(ui_color(0x8a8a8a))
+                                                    .child("关闭后 broker 只读，不加载动作桥、不注入 Weixin.exe"),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("settings-native-actions")
+                                            .w(px(42.))
+                                            .h(px(24.))
+                                            .flex_none()
+                                            .rounded_full()
+                                            .bg(if draft.native_actions { ui_color(0x07b75b) } else { ui_color(0xd1d5db) })
+                                            .flex()
+                                            .items_center()
+                                            .when(draft.native_actions, |this| this.justify_end())
+                                            .when(!draft.native_actions, |this| this.justify_start())
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.settings_draft.native_actions = !this.settings_draft.native_actions;
+                                                cx.notify();
+                                            }))
+                                            .child(
+                                                div()
+                                                    .w(px(20.))
+                                                    .h(px(20.))
+                                                    .m(px(2.))
+                                                    .rounded_full()
+                                                    .bg(ui_color(0xffffff)),
+                                            ),
+                                    ),
+                            ),
                     )
                     .child(
                         div()
@@ -5013,6 +6308,49 @@ impl WeChatApp {
             );
         }
 
+        if self
+            .store
+            .as_ref()
+            .map(Store::native_actions)
+            .unwrap_or(false)
+        {
+            let tid = post.tid_i64;
+            let user = post.username.clone();
+            let user_comment = user.clone();
+            body = body.child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .pt_1()
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("sns-like:{}", post.tid).into()))
+                            .text_xs()
+                            .text_color(ui_color(0x576b95))
+                            .cursor_pointer()
+                            .hover(|style| style.opacity(0.7))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.like_moments_post(tid, user.clone(), cx)
+                            }))
+                            .child("赞"),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(
+                                format!("sns-comment-image:{}", post.tid).into(),
+                            ))
+                            .text_xs()
+                            .text_color(ui_color(0x576b95))
+                            .cursor_pointer()
+                            .hover(|style| style.opacity(0.7))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.comment_image_moments_post(tid, user_comment.clone(), cx)
+                            }))
+                            .child("图片评论"),
+                    ),
+            );
+        }
+
         div()
             .id(ElementId::Name(format!("sns:{}", post.tid).into()))
             .aria_label(name.clone())
@@ -5221,6 +6559,84 @@ impl WeChatApp {
                                 .text_sm()
                                 .text_color(ui_color(0xffffff))
                                 .child("朋友圈"),
+                        )
+                        .child(
+                            div().flex().justify_end().child(
+                                div()
+                                    .id("sns-refresh")
+                                    .aria_label("刷新朋友圈")
+                                    .test_support()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(ui_color(0xd6d6d6))
+                                    .bg(ui_color(0xffffff))
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .hover(|style| style.bg(ui_color(0xf5f5f5)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.sns_loaded = false;
+                                        this.load_sns_page(true, cx);
+                                        this.status =
+                                            "已重读本地朋友圈缓存；未触发微信网络刷新".to_string();
+                                        cx.notify();
+                                    }))
+                                    .child("刷新"),
+                            ),
+                        )
+                        .when(
+                            self.store
+                                .as_ref()
+                                .map(Store::native_actions)
+                                .unwrap_or(false),
+                            |this| {
+                                let input = self.sns_compose_input.as_ref().map(|state| {
+                                    Input::new(state)
+                                        .cleanable(true)
+                                        .aria_label("朋友圈正文")
+                                        .into_any_element()
+                                });
+                                this.child(
+                                    div()
+                                        .w_full()
+                                        .rounded_sm()
+                                        .bg(ui_color(0xffffff))
+                                        .p_3()
+                                        .flex()
+                                        .flex_col()
+                                        .gap_2()
+                                        .child(div().text_sm().child("发布朋友圈"))
+                                        .when_some(input, |this, input| this.child(input))
+                                        .child(
+                                            div().flex().justify_end().child(
+                                                div()
+                                                    .id("sns-publish")
+                                                    .aria_label("发布朋友圈")
+                                                    .test_support()
+                                                    .px_4()
+                                                    .py_1()
+                                                    .rounded_md()
+                                                    .bg(ui_color(if self.sns_publishing {
+                                                        0xd1d5db
+                                                    } else {
+                                                        0x07b75b
+                                                    }))
+                                                    .text_color(rgb(0xffffff))
+                                                    .text_xs()
+                                                    .cursor_pointer()
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.publish_moments_text(cx)
+                                                    }))
+                                                    .child(if self.sns_publishing {
+                                                        "发布中…"
+                                                    } else {
+                                                        "发布"
+                                                    }),
+                                            ),
+                                        ),
+                                )
+                            },
                         )
                         .children(post_cards)
                         .when(no_posts, |this| {
@@ -5896,6 +7312,2055 @@ fn relative_time(timestamp: i64) -> String {
     }
 }
 
+impl WeChatApp {
+    fn prepare_ai_reply(&mut self) {
+        if self.ai_agents.is_empty() {
+            self.ai_agents = detect_agents();
+        }
+        if self.ai_settings.agent_program.is_empty()
+            && let Some(agent) = self.ai_agents.first()
+        {
+            self.ai_settings.agent_program = agent.program.to_string_lossy().to_string();
+            self.ai_settings.agent_args = join_args_line(&agent.default_args);
+            if let Some(value) = agent.permission_values.first() {
+                self.ai_settings.permission = value.clone();
+            }
+        }
+        let current: Vec<(String, String)> = self
+            .sessions
+            .iter()
+            .map(|session| (session.username.clone(), session.display_name.clone()))
+            .collect();
+        for (username, display_name) in &current {
+            if let Some(existing) = self
+                .ai_settings
+                .sessions
+                .iter_mut()
+                .find(|item| &item.username == username)
+            {
+                existing.display_name = display_name.clone();
+            } else {
+                self.ai_settings.sessions.push(AiSessionSetting {
+                    username: username.clone(),
+                    display_name: display_name.clone(),
+                    enabled: false,
+                    prompt: String::new(),
+                    permission: self.ai_settings.permission.clone(),
+                    session_mode: default_session_mode(),
+                    agent_program: self.ai_settings.agent_program.clone(),
+                    agent_args: self.ai_settings.agent_args.clone(),
+                    agent_stream: self.ai_settings.agent_stream,
+                    stream_args: self.ai_settings.stream_args.clone(),
+                    reply_mode: self.ai_settings.reply_mode.clone(),
+                });
+            }
+        }
+        let selected_valid = self
+            .ai_selected
+            .as_ref()
+            .map(|selected| current.iter().any(|(username, _)| username == selected))
+            .unwrap_or(false);
+        if !selected_valid {
+            let enabled = self
+                .ai_settings
+                .sessions
+                .iter()
+                .find(|item| item.enabled && current.iter().any(|(username, _)| username == &item.username))
+                .map(|item| item.username.clone());
+            self.ai_selected = enabled.or_else(|| current.first().map(|(username, _)| username.clone()));
+        }
+        self.ai_session_store = self
+            .ai_selected
+            .as_ref()
+            .map(|username| wechat_watch::load_session_store(&self.ai_project_dir(username)));
+        self.ai_load_transcript();
+    }
+
+    fn ai_session_setting(&self, username: &str) -> Option<&AiSessionSetting> {
+        self.ai_settings
+            .sessions
+            .iter()
+            .find(|item| item.username == username)
+    }
+
+    fn ai_session_setting_mut(&mut self, username: &str) -> Option<&mut AiSessionSetting> {
+        self.ai_settings
+            .sessions
+            .iter_mut()
+            .find(|item| item.username == username)
+    }
+
+    fn ai_project_dir(&self, username: &str) -> PathBuf {
+        let safe: String = username
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        self.ai_log_dir().join("projects").join(safe)
+    }
+
+    fn ai_open_project(&self, directory: &Path) {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::fs::create_dir_all(directory);
+            let _ = std::process::Command::new("explorer").arg(directory).spawn();
+        }
+    }
+
+    fn ai_log_dir(&self) -> PathBuf {
+        let base = self
+            .settings
+            .storage_dir
+            .clone()
+            .or_else(|| settings_path().parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."));
+        base.join("ai-watch")
+    }
+
+    fn ai_watch_config_path() -> PathBuf {
+        settings_path().with_file_name("ai_watch.json")
+    }
+
+    fn ai_effective_session(&self, username: &str) -> AiSessionSetting {
+        let committed = self.ai_session_setting(username).cloned();
+        let own_agent = committed
+            .as_ref()
+            .map(|item| !item.agent_program.trim().is_empty())
+            .unwrap_or(false);
+        let mut setting = committed.unwrap_or_else(|| AiSessionSetting {
+            username: username.to_string(),
+            display_name: String::new(),
+            enabled: false,
+            prompt: String::new(),
+            permission: String::new(),
+            session_mode: default_session_mode(),
+            agent_program: String::new(),
+            agent_args: String::new(),
+            agent_stream: false,
+            stream_args: String::new(),
+            reply_mode: String::new(),
+        });
+        if setting.agent_program.trim().is_empty() {
+            setting.agent_program = self.ai_settings.agent_program.clone();
+        }
+        if setting.agent_args.trim().is_empty() {
+            setting.agent_args = self.ai_settings.agent_args.clone();
+        }
+        if setting.stream_args.trim().is_empty() {
+            setting.stream_args = self.ai_settings.stream_args.clone();
+        }
+        if setting.reply_mode.trim().is_empty() {
+            setting.reply_mode = self.ai_settings.reply_mode.clone();
+        }
+        if setting.permission.trim().is_empty() {
+            setting.permission = self.ai_settings.permission.clone();
+        }
+        if !own_agent {
+            setting.agent_stream = self.ai_settings.agent_stream;
+        }
+        let stream_supported = self
+            .ai_agents
+            .iter()
+            .find(|agent| agent.program.to_string_lossy() == setting.agent_program)
+            .map(|agent| !agent.stream_args.is_empty())
+            .unwrap_or(false);
+        if !stream_supported {
+            setting.agent_stream = false;
+        }
+        setting
+    }
+
+    fn ai_open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(username) = self.ai_selected.clone() else {
+            return;
+        };
+        let setting = self.ai_effective_session(&username);
+        self.ai_session_draft = Some(setting.clone());
+        self.ai_settings_open = true;
+        if let Some(state) = self.ai_prompt_input.as_ref() {
+            state.update(cx, |state, cx| state.set_value(&setting.prompt, window, cx));
+        }
+        if let Some(state) = self.ai_args_input.as_ref() {
+            state.update(cx, |state, cx| {
+                state.set_value(&setting.agent_args, window, cx)
+            });
+        }
+        if let Some(state) = self.ai_stream_args_input.as_ref() {
+            state.update(cx, |state, cx| {
+                state.set_value(&setting.stream_args, window, cx)
+            });
+        }
+        cx.notify();
+    }
+
+    fn ai_cancel_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ai_settings_open = false;
+        self.ai_session_draft = None;
+        if let Some(username) = self.ai_selected.clone() {
+            let setting = self.ai_effective_session(&username);
+            if let Some(state) = self.ai_prompt_input.as_ref() {
+                state.update(cx, |state, cx| {
+                    state.set_value(&setting.prompt, window, cx)
+                });
+            }
+            if let Some(state) = self.ai_args_input.as_ref() {
+                state.update(cx, |state, cx| {
+                    state.set_value(&setting.agent_args, window, cx)
+                });
+            }
+            if let Some(state) = self.ai_stream_args_input.as_ref() {
+                state.update(cx, |state, cx| {
+                    state.set_value(&setting.stream_args, window, cx)
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    fn ai_commit_settings(&mut self, cx: &mut Context<Self>) {
+        self.ai_save_inputs(cx);
+        let Some(mut draft) = self.ai_session_draft.take() else {
+            self.ai_settings_open = false;
+            return;
+        };
+        if draft.agent_program.trim().is_empty() {
+            draft.agent_program = self.ai_settings.agent_program.clone();
+        }
+        if draft.agent_args.trim().is_empty() {
+            draft.agent_args = self.ai_settings.agent_args.clone();
+        }
+        if draft.reply_mode.trim().is_empty() {
+            draft.reply_mode = self.ai_settings.reply_mode.clone();
+        }
+        if draft.agent_stream && draft.stream_args.trim().is_empty() {
+            draft.stream_args = self
+                .ai_agents
+                .iter()
+                .find(|agent| agent.program.to_string_lossy() == draft.agent_program)
+                .map(|agent| join_args_line(&agent.stream_args))
+                .unwrap_or_default();
+        }
+        if let Some(existing) = self
+            .ai_settings
+            .sessions
+            .iter_mut()
+            .find(|item| item.username == draft.username)
+        {
+            *existing = draft.clone();
+        } else {
+            self.ai_settings.sessions.push(draft.clone());
+        }
+        let _ = save_ai_settings(&self.ai_settings);
+        self.ai_settings_open = false;
+        self.ai_sync_config();
+        cx.notify();
+    }
+
+    fn ai_load_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = if let Some(draft) = self.ai_session_draft.as_ref() {
+            draft.prompt.clone()
+        } else {
+            self.ai_selected
+                .as_ref()
+                .and_then(|username| self.ai_session_setting(username))
+                .map(|item| item.prompt.clone())
+                .unwrap_or_default()
+        };
+        self.ai_session_store = self
+            .ai_selected
+            .as_ref()
+            .map(|username| wechat_watch::load_session_store(&self.ai_project_dir(username)));
+        if let Some(state) = self.ai_prompt_input.as_ref() {
+            state.update(cx, |state, cx| state.set_value(&text, window, cx));
+        }
+    }
+
+    fn ai_save_inputs(&mut self, cx: &mut Context<Self>) {
+        if let Some(draft) = self.ai_session_draft.as_mut() {
+            if let Some(state) = self.ai_args_input.as_ref() {
+                draft.agent_args = state.read(cx).value().to_string();
+            }
+            if let Some(state) = self.ai_stream_args_input.as_ref() {
+                draft.stream_args = state.read(cx).value().to_string();
+            }
+            if let Some(state) = self.ai_prompt_input.as_ref() {
+                draft.prompt = state.read(cx).value().to_string();
+            }
+            return;
+        }
+        if let Some(state) = self.ai_args_input.as_ref() {
+            self.ai_settings.agent_args = state.read(cx).value().to_string();
+        }
+        if let Some(state) = self.ai_stream_args_input.as_ref() {
+            self.ai_settings.stream_args = state.read(cx).value().to_string();
+        }
+        if let Some(username) = self.ai_selected.clone()
+            && let Some(state) = self.ai_prompt_input.as_ref()
+        {
+            let text = state.read(cx).value().to_string();
+            if let Some(item) = self.ai_session_setting_mut(&username) {
+                item.prompt = text;
+            }
+        }
+        let _ = save_ai_settings(&self.ai_settings);
+        self.ai_sync_config();
+    }
+
+    fn ensure_ai_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ai_args_input.is_none() {
+            let text = self.ai_settings.agent_args.clone();
+            let state = cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Agent 参数，一行；空参数用 \"\"")
+            });
+            state.update(cx, |state, cx| state.set_value(&text, window, cx));
+            self.ai_args_input = Some(state);
+        }
+        if self.ai_stream_args_input.is_none() {
+            let text = self.ai_settings.stream_args.clone();
+            let state = cx.new(|cx| {
+                InputState::new(window, cx).placeholder("常驻参数（stream-json），一行")
+            });
+            state.update(cx, |state, cx| state.set_value(&text, window, cx));
+            self.ai_stream_args_input = Some(state);
+        }
+        if self.ai_prompt_input.is_none() {
+            let state = cx.new(|cx| InputState::new(window, cx).placeholder("给这个会话的提示词"));
+            let text = self
+                .ai_selected
+                .as_ref()
+                .and_then(|username| self.ai_session_setting(username))
+                .map(|item| item.prompt.clone())
+                .unwrap_or_default();
+            state.update(cx, |state, cx| state.set_value(&text, window, cx));
+            self.ai_prompt_input = Some(state);
+        }
+    }
+
+    fn ai_transcript_path(&self, username: &str) -> PathBuf {
+        let safe: String = username
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        self.ai_log_dir()
+            .join("transcripts")
+            .join(format!("{safe}.jsonl"))
+    }
+
+    fn ai_load_transcript(&mut self) -> bool {
+        let Some(username) = self.ai_selected.clone() else {
+            if self.ai_transcript.is_empty() {
+                return false;
+            }
+            self.ai_transcript.clear();
+            self.ai_transcript_sig = None;
+            return true;
+        };
+        let filter = self.ai_agent_session.clone().unwrap_or_default();
+        let text = std::fs::read_to_string(self.ai_transcript_path(&username)).unwrap_or_default();
+        let signature = (username.clone(), text.len(), filter.clone());
+        if self.ai_transcript_sig.as_ref() == Some(&signature) {
+            return false;
+        }
+        self.ai_transcript_sig = Some(signature);
+        let mut entries: Vec<AiTranscriptEntry> = Vec::new();
+        for line in text.lines().rev() {
+            if entries.len() >= 300 {
+                break;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let session = value
+                .get("agent_session")
+                .and_then(|item| item.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !filter.is_empty() && !session.is_empty() && session != filter {
+                continue;
+            }
+            entries.push(AiTranscriptEntry {
+                ts: value.get("ts").and_then(|item| item.as_u64()).unwrap_or(0),
+                kind: value
+                    .get("kind")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                name: value
+                    .get("name")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                text: value
+                    .get("text")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                error: value
+                    .get("error")
+                    .and_then(|item| item.as_bool())
+                    .unwrap_or(false),
+                session,
+            });
+        }
+        entries.reverse();
+        let mut deduped = Vec::with_capacity(entries.len());
+        for (index, entry) in entries.iter().enumerate() {
+            let duplicated = entry.kind == "assistant"
+                && entries
+                    .get(index + 1)
+                    .map(|next| {
+                        next.kind == "final" && next.text.trim() == entry.text.trim()
+                    })
+                    .unwrap_or(false);
+            if !duplicated {
+                deduped.push(entry.clone());
+            }
+        }
+        self.ai_transcript = deduped;
+        if let Some(username) = self.ai_selected.clone() {
+            let store = wechat_watch::load_session_store(&self.ai_project_dir(&username));
+            let keep = self
+                .ai_agent_session
+                .clone()
+                .filter(|id| store.sessions.iter().any(|entry| &entry.id == id));
+            self.ai_agent_session = keep.or_else(|| store.current.clone());
+            self.ai_session_cache.insert(username, store.clone());
+            self.ai_session_store = Some(store);
+        }
+        self.ai_transcript_scroll.scroll_to_bottom();
+        true
+    }
+
+    fn ensure_ai_transcript_task(&mut self, cx: &mut Context<Self>) {
+        if self._ai_transcript_task.is_some() {
+            return;
+        }
+        let task = cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(1500))
+                .await;
+            let keep = this.update(cx, |this, cx| {
+                if this.view != View::AiReply {
+                    return true;
+                }
+                let mut notify = this.ai_load_transcript();
+                let exited = this
+                    .ai_watcher
+                    .as_mut()
+                    .map(|child| matches!(child.try_wait(), Ok(Some(_))))
+                    .unwrap_or(false);
+                if exited {
+                    this.ai_watcher = None;
+                    this.ai_status = "watcher 已退出".to_string();
+                    notify = true;
+                }
+                if notify {
+                    cx.notify();
+                }
+                true
+            });
+            if keep.is_err() {
+                break;
+            }
+        });
+        self._ai_transcript_task = Some(task);
+    }
+
+    fn ai_watch_config(&self) -> Result<WatchConfig, String> {
+        let Some(params) = self.realtime_params.clone() else {
+            return Err("仅实时模式支持自动回复".to_string());
+        };
+        let Some(key_store) = self.settings.key_store.clone() else {
+            return Err("未配置 key store".to_string());
+        };
+        let broker = self
+            .settings
+            .broker
+            .clone()
+            .unwrap_or_else(|| params.broker.clone());
+        let selected_agent = self
+            .ai_agents
+            .iter()
+            .find(|agent| agent.program.to_string_lossy() == self.ai_settings.agent_program)
+            .cloned();
+        let agent_program = PathBuf::from(self.ai_settings.agent_program.trim());
+        let missing_program = self
+            .ai_settings
+            .sessions
+            .iter()
+            .filter(|item| item.enabled)
+            .any(|item| {
+                self.ai_effective_session(&item.username)
+                    .agent_program
+                    .trim()
+                    .is_empty()
+            });
+        if missing_program {
+            return Err("有会话未配置 agent".to_string());
+        }
+        let current: HashSet<String> = self
+            .sessions
+            .iter()
+            .map(|session| session.username.clone())
+            .collect();
+        let sessions: Vec<WatchSessionConfig> = self
+            .ai_settings
+            .sessions
+            .iter()
+            .filter(|item| item.enabled && current.contains(&item.username))
+            .map(|item| {
+                let agent = self
+                    .ai_agents
+                    .iter()
+                    .find(|agent| agent.program.to_string_lossy() == item.agent_program)
+                    .or(selected_agent.as_ref())
+                    .cloned();
+                let mut args = sanitize_agent_args(split_args_line(&item.agent_args));
+                if item.session_mode != "fresh" {
+                    args.retain(|value| value != "--no-session-persistence");
+                }
+                WatchSessionConfig {
+                    username: item.username.clone(),
+                    display_name: item.display_name.clone(),
+                    enabled: true,
+                    prompt: item.prompt.clone(),
+                    permission: item.permission.clone(),
+                    project_dir: Some(self.ai_project_dir(&item.username)),
+                    session_mode: item.session_mode.clone(),
+                    agent_program: PathBuf::from(item.agent_program.trim()),
+                    agent_args: args,
+                    new_session_args: agent
+                        .as_ref()
+                        .map(|agent| agent.new_session_args.clone())
+                        .unwrap_or_default(),
+                    resume_args: agent
+                        .as_ref()
+                        .map(|agent| agent.resume_args.clone())
+                        .unwrap_or_default(),
+                    stream: item.agent_stream,
+                    stream_args: sanitize_agent_args(split_args_line(&item.stream_args)),
+                    reply_mode: item.reply_mode.clone(),
+                }
+            })
+            .collect();
+        if sessions.is_empty() {
+            return Err("请至少启用一个会话".to_string());
+        }
+        let persistent_sessions = self
+            .ai_settings
+            .sessions
+            .iter()
+            .any(|item| item.enabled && item.session_mode != "fresh");
+        let mut agent_args = split_args_line(&self.ai_settings.agent_args);
+        agent_args = sanitize_agent_args(agent_args);
+        if persistent_sessions {
+            agent_args.retain(|value| value != "--no-session-persistence");
+        }
+        let mut stream_args = if self.ai_settings.agent_stream {
+            split_args_line(&self.ai_settings.stream_args)
+        } else {
+            Vec::new()
+        };
+        if self.ai_settings.agent_stream && stream_args.is_empty() {
+            stream_args = selected_agent
+                .as_ref()
+                .map(|agent| agent.stream_args.clone())
+                .unwrap_or_default();
+        }
+        stream_args = sanitize_agent_args(stream_args);
+        let log_dir = self.ai_log_dir();
+        Ok(WatchConfig {
+            account_root: params.root.clone(),
+            key_store,
+            broker,
+            account_hint: params.account.clone(),
+            cursor_dir: log_dir.join("cursors"),
+            log_dir: log_dir.clone(),
+            poll_ms: self.ai_settings.poll_ms.clamp(200, 60_000),
+            include_self: false,
+            bridge: native_bridge_for(&self.settings).unwrap_or_default(),
+            reply_mode: self.ai_settings.reply_mode.clone(),
+            prompt_template: String::new(),
+            agent: WatchAgentConfig {
+                program: agent_program,
+                args: agent_args,
+                new_session_args: selected_agent
+                    .as_ref()
+                    .map(|agent| agent.new_session_args.clone())
+                    .unwrap_or_default(),
+                resume_args: selected_agent
+                    .as_ref()
+                    .map(|agent| agent.resume_args.clone())
+                    .unwrap_or_default(),
+                stream: !stream_args.is_empty() && self.ai_settings.reply_mode == "stdout",
+                stream_args,
+                stream_idle_secs: self.ai_settings.stream_idle_secs.clamp(30, 86_400),
+                mcp_server: self.ai_settings.mcp_server.clone(),
+                permission: self.ai_settings.permission.clone(),
+                timeout_secs: 180,
+            },
+            sessions,
+        })
+    }
+
+    fn ai_write_watch_config(&self) -> Result<PathBuf, String> {
+        let config = self.ai_watch_config()?;
+        for session in &config.sessions {
+            wechat_watch::ensure_session_project(&config, session);
+        }
+        let config_path = Self::ai_watch_config_path();
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| format!("创建配置目录失败: {error}"))?;
+        }
+        let text =
+            serde_json::to_string_pretty(&config).map_err(|error| format!("生成配置失败: {error}"))?;
+        let temp = config_path.with_extension("json.tmp");
+        std::fs::write(&temp, text).map_err(|error| format!("写入配置失败: {error}"))?;
+        std::fs::rename(&temp, &config_path).map_err(|error| format!("替换配置失败: {error}"))?;
+        Ok(config_path)
+    }
+
+    fn ai_sync_config(&mut self) {
+        if self.ai_watcher.is_none() {
+            return;
+        }
+        if let Err(error) = self.ai_write_watch_config() {
+            self.ai_status = format!("同步配置失败: {error}");
+        }
+    }
+
+    fn ai_start(&mut self, cx: &mut Context<Self>) {
+        self.ai_save_inputs(cx);
+        if self.ai_watcher.is_some() {
+            self.ai_status = "watcher 已在运行".to_string();
+            return;
+        }
+        let watcher = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join("wechat-watch.exe")))
+            .filter(|path| path.is_file());
+        let Some(watcher) = watcher else {
+            self.ai_status = "未找到 wechat-watch.exe（应与 wechat-ui.exe 同目录）".to_string();
+            return;
+        };
+        let wants_stdout = self
+            .ai_settings
+            .sessions
+            .iter()
+            .filter(|item| item.enabled)
+            .any(|item| self.ai_effective_session(&item.username).reply_mode == "stdout");
+        if wants_stdout && native_bridge_for(&self.settings).is_none() {
+            self.ai_status = "标准输出回复需要启用动作桥并注入微信进程".to_string();
+            return;
+        }
+        let config_path = match self.ai_write_watch_config() {
+            Ok(path) => path,
+            Err(error) => {
+                self.ai_status = error;
+                return;
+            }
+        };
+        let lock = config_path.with_extension("lock");
+        if let Ok(text) = std::fs::read_to_string(&lock) {
+            if let Ok(pid) = text.trim().parse::<u32>() {
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/PID", &pid.to_string(), "/T", "/F"])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+            let _ = std::fs::remove_file(&lock);
+        }
+        let mut command = std::process::Command::new(&watcher);
+        command
+            .arg("--config")
+            .arg(&config_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        if let Some(parent) = config_path.parent() {
+            command.current_dir(parent);
+        }
+        match command.spawn() {
+            Ok(child) => {
+                self.ai_watcher = Some(child);
+                self.ai_settings.enabled = true;
+                let _ = save_ai_settings(&self.ai_settings);
+                self.ai_status = "watcher 已启动".to_string();
+                self.ai_load_transcript();
+            }
+            Err(error) => self.ai_status = format!("启动 watcher 失败: {error}"),
+        }
+    }
+
+    fn ai_stop(&mut self) {
+        if let Some(mut child) = self.ai_watcher.take() {
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/PID", &child.id().to_string(), "/T", "/F"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let lock = Self::ai_watch_config_path().with_extension("lock");
+        let _ = std::fs::remove_file(lock);
+        self.ai_settings.enabled = false;
+        let _ = save_ai_settings(&self.ai_settings);
+        self.ai_status = "watcher 已停止".to_string();
+        self.ai_load_transcript();
+    }
+
+    fn ai_avatar(&self) -> AnyElement {
+        div()
+            .w(px(26.))
+            .h(px(26.))
+            .flex_none()
+            .rounded_full()
+            .bg(ui_color(0x07b75b))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_xs()
+            .text_color(ui_color(0xffffff))
+            .child("AI")
+            .into_any_element()
+    }
+
+    fn ai_collapsible_block(
+        &self,
+        label: String,
+        accent: u32,
+        entry: &AiTranscriptEntry,
+        key: String,
+        expanded: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let preview = entry
+            .text
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let preview = truncate_text(&preview, 110);
+        let body = truncate_text(&entry.text, 4000);
+        let toggle_key = key.clone();
+        let body_id = format!("ai-block-body-{key}");
+        div()
+            .w_full()
+            .rounded_lg()
+            .border_1()
+            .border_color(ui_color(0xe5e7eb))
+            .bg(ui_color(0xfbfbfc))
+            .child(
+                div()
+                    .id(ElementId::Name(format!("ai-block-{key}").into()))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(ui_color(0xf3f4f6)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.ai_expanded_blocks.remove(&toggle_key) {
+                            this.ai_expanded_blocks.insert(toggle_key.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .w(px(6.))
+                            .h(px(6.))
+                            .flex_none()
+                            .rounded_full()
+                            .bg(ui_color(accent)),
+                    )
+                    .child(div().flex_none().text_xs().text_color(ui_color(accent)).child(label))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(ui_color(0x6b7280))
+                            .truncate()
+                            .child(if expanded { String::new() } else { preview }),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_xs()
+                            .text_color(ui_color(0x9ca3af))
+                            .child(if expanded { "▾" } else { "▸" }),
+                    ),
+            )
+            .when(expanded, |this| {
+                this.child(
+                    div()
+                        .px_3()
+                        .pb_3()
+                        .child(selectable_text(&body, &body_id, 12.0, 0x374151)),
+                )
+            })
+            .into_any_element()
+    }
+
+    fn ai_agent_text(
+        &self,
+        label: &str,
+        entry: &AiTranscriptEntry,
+        index: usize,
+        color: u32,
+    ) -> AnyElement {
+        let session = if entry.session.len() > 8 {
+            format!(" · {}", &entry.session[..8])
+        } else {
+            String::new()
+        };
+        let text = truncate_text(&entry.text, 4000);
+        div()
+            .w_full()
+            .flex()
+            .gap_3()
+            .child(self.ai_avatar())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ui_color(0x111827))
+                                    .child("Qoder"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ui_color(0x9ca3af))
+                                    .child(format!("{label}{session}")),
+                            ),
+                    )
+                    .child(selectable_text(
+                        &text,
+                        &format!("ai-agent-{index}-{}", entry.ts),
+                        13.0,
+                        color,
+                    )),
+            )
+            .into_any_element()
+    }
+
+    fn ai_transcript_row(
+        &self,
+        entry: &AiTranscriptEntry,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let key = format!("{index}:{}", entry.ts);
+        let expanded = self.ai_expanded_blocks.contains(&key);
+        match entry.kind.as_str() {
+            "user" => {
+                let text = truncate_text(&entry.text, 2000);
+                div()
+                    .w_full()
+                    .flex()
+                    .justify_end()
+                    .child(
+                        div()
+                            .max_w(px(560.))
+                            .rounded_lg()
+                            .bg(ui_color(0xe7f6ec))
+                            .px_3()
+                            .py_2()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ui_color(0x15803d))
+                                    .child("微信消息"),
+                            )
+                            .child(selectable_text(
+                                &text,
+                                &format!("ai-user-{index}-{}", entry.ts),
+                                13.0,
+                                0x14532d,
+                            )),
+                    )
+                    .into_any_element()
+            }
+            "thinking" => self.ai_collapsible_block(
+                "思考".to_string(),
+                0x7c3aed,
+                entry,
+                key,
+                expanded,
+                cx,
+            ),
+            "tool" => self.ai_collapsible_block(
+                if entry.name.is_empty() {
+                    "工具".to_string()
+                } else {
+                    entry.name.clone()
+                },
+                0xb45309,
+                entry,
+                key,
+                expanded,
+                cx,
+            ),
+            "tool_result" => self.ai_collapsible_block(
+                if entry.error {
+                    "结果 · 错误".to_string()
+                } else {
+                    "结果".to_string()
+                },
+                if entry.error { 0xb91c1c } else { 0x6b7280 },
+                entry,
+                key,
+                expanded,
+                cx,
+            ),
+            "assistant" => self.ai_agent_text("中间输出", entry, index, 0x1f2937),
+            "error" => self.ai_agent_text("错误", entry, index, 0xb91c1c),
+            "final" => {
+                let text = truncate_text(&entry.text, 4000);
+                let border = if entry.error { 0xfecaca } else { 0xbbf7d0 };
+                let bg = if entry.error { 0xfef2f2 } else { 0xf0fdf4 };
+                let accent = if entry.error { 0xb91c1c } else { 0x15803d };
+                let label = if entry.error { "运行失败" } else { "已发送回复" };
+                div()
+                    .w_full()
+                    .flex()
+                    .gap_3()
+                    .child(self.ai_avatar())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(ui_color(border))
+                            .bg(ui_color(bg))
+                            .px_3()
+                            .py_2()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(ui_color(accent))
+                                            .child(if entry.error { "✕" } else { "✓" }),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(ui_color(accent))
+                                            .child(label),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(ui_color(0x9ca3af))
+                                            .child(if entry.session.len() > 8 {
+                                                entry.session[..8].to_string()
+                                            } else {
+                                                entry.session.clone()
+                                            }),
+                                    ),
+                            )
+                            .child(selectable_text(
+                                &text,
+                                &format!("ai-final-{index}-{}", entry.ts),
+                                13.0,
+                                0x111827,
+                            )),
+                    )
+                    .into_any_element()
+            }
+            "skip" | "note" => div()
+                .w_full()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(ui_color(0x9ca3af))
+                        .child(truncate_text(&entry.text, 200)),
+                )
+                .into_any_element(),
+            _ => self.ai_agent_text("记录", entry, index, 0x374151),
+        }
+    }
+
+    fn ai_tree_row(&self, row: &AiTreeRow, cx: &mut Context<Self>) -> AnyElement {
+        match row {
+            AiTreeRow::Chat {
+                username,
+                display_name,
+                enabled,
+                selected,
+                expanded,
+                agent_count,
+            } => {
+                let select_user = username.clone();
+                let toggle_user = username.clone();
+                let expand_user = username.clone();
+                let chevron = if *expanded { "▾" } else { "▸" };
+                div()
+                    .id(ElementId::Name(format!("ai-session:{username}").into()))
+                    .aria_label(display_name.clone())
+                    .w_full()
+                    .h(px(52.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .when(*selected, |this| this.bg(ui_color(0xe4f6ec)))
+                    .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.ai_settings_open {
+                            this.ai_settings_open = false;
+                            this.ai_session_draft = None;
+                        } else {
+                            this.ai_save_inputs(cx);
+                        }
+                        this.ai_selected = Some(select_user.clone());
+                        let store = wechat_watch::load_session_store(
+                            &this.ai_project_dir(&select_user),
+                        );
+                        this.ai_agent_session = store.current.clone();
+                        this.ai_session_cache.insert(select_user.clone(), store.clone());
+                        this.ai_session_store = Some(store);
+                        this.ai_load_prompt(window, cx);
+                        this.ai_load_transcript();
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("ai-expand:{username}").into()))
+                            .aria_label("展开 agent 会话")
+                            .w(px(18.))
+                            .h(px(22.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_xs()
+                            .text_color(ui_color(0x9ca3af))
+                            .hover(|style| style.text_color(ui_color(0x111827)))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                if this.ai_tree_expanded.contains(&expand_user) {
+                                    this.ai_tree_expanded.remove(&expand_user);
+                                } else {
+                                    this.ai_tree_expanded.insert(expand_user.clone());
+                                    let store = wechat_watch::load_session_store(
+                                        &this.ai_project_dir(&expand_user),
+                                    );
+                                    this.ai_session_cache.insert(expand_user.clone(), store);
+                                }
+                                this.ai_load_transcript();
+                                cx.notify();
+                                let _ = window;
+                            }))
+                            .child(chevron),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(format!("ai-toggle:{username}").into()))
+                            .aria_label("启用会话")
+                            .w(px(18.))
+                            .h(px(18.))
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(ui_color(0xcbd5e1))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_xs()
+                            .text_color(ui_color(0xffffff))
+                            .when(*enabled, |this| {
+                                this.bg(ui_color(0x07b75b)).border_color(ui_color(0x07b75b))
+                            })
+                            .when(*enabled, |this| this.child("✓"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                if let Some(item) = this.ai_session_setting_mut(&toggle_user) {
+                                    item.enabled = !item.enabled;
+                                }
+                                let _ = save_ai_settings(&this.ai_settings);
+                                this.ai_sync_config();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(div().text_sm().truncate().child(display_name.clone()))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ui_color(0x8a8a8a))
+                                    .truncate()
+                                    .child(username.clone()),
+                            ),
+                    )
+                    .when(*agent_count > 0, |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(ui_color(0x9ca3af))
+                                .child(format!("{agent_count}")),
+                        )
+                    })
+                    .into_any_element()
+            }
+            AiTreeRow::Agent {
+                username,
+                session_id,
+                label,
+                current,
+                viewing,
+            } => {
+                let username = username.clone();
+                let session_id = session_id.clone();
+                let label = label.clone();
+                let current = *current;
+                let viewing = *viewing;
+                div()
+                    .id(ElementId::Name(format!("ai-agent-session:{session_id}").into()))
+                    .aria_label(label.clone())
+                    .w_full()
+                    .h(px(34.))
+                    .pl(px(34.))
+                    .pr_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .when(viewing, |this| this.bg(ui_color(0xeef7f1)))
+                    .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let directory = this.ai_project_dir(&username);
+                        if let Some(store) = this.ai_session_cache.get_mut(&username) {
+                            wechat_watch::set_current_session(&directory, store, &session_id);
+                        }
+                        this.ai_selected = Some(username.clone());
+                        this.ai_agent_session = Some(session_id.clone());
+                        let store = wechat_watch::load_session_store(&this.ai_project_dir(&username));
+                        this.ai_agent_session = store.current.clone();
+                        this.ai_session_store = Some(store);
+                        this.ai_load_transcript();
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(if current {
+                                ui_color(0x07b75b)
+                            } else {
+                                ui_color(0xd1d5db)
+                            })
+                            .child(if current { "●" } else { "○" }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_xs()
+                            .truncate()
+                            .text_color(ui_color(0x6b7280))
+                            .child(label),
+                    )
+                    .into_any_element()
+            }
+        }
+    }
+
+    fn render_ai_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.ensure_ai_inputs(window, cx);
+        if let Some(child) = self.ai_watcher.as_mut()
+            && let Ok(Some(status)) = child.try_wait()
+        {
+            self.ai_watcher = None;
+            self.ai_status = format!("watcher 已退出: {status}");
+        }
+        let selected = self.ai_selected.clone();
+        let mut rows: Vec<AiTreeRow> = Vec::new();
+        for session in self.sessions.iter() {
+            let enabled = self
+                .ai_session_setting(&session.username)
+                .map(|item| item.enabled)
+                .unwrap_or(false);
+            let expanded = self.ai_tree_expanded.contains(&session.username);
+            let store = self.ai_session_cache.get(&session.username);
+            rows.push(AiTreeRow::Chat {
+                username: session.username.clone(),
+                display_name: session.display_name.clone(),
+                enabled,
+                selected: selected.as_deref() == Some(session.username.as_str()),
+                expanded,
+                agent_count: store.map(|store| store.sessions.len()).unwrap_or(0),
+            });
+            if let Some(store) = store.filter(|_| expanded) {
+                for (index, entry) in store.sessions.iter().enumerate() {
+                    rows.push(AiTreeRow::Agent {
+                        username: session.username.clone(),
+                        session_id: entry.id.clone(),
+                        label: format!(
+                            "#{} {}",
+                            index + 1,
+                            if entry.started { "已开始" } else { "未开始" }
+                        ),
+                        current: store.current.as_deref() == Some(entry.id.as_str()),
+                        viewing: self.ai_agent_session.as_deref() == Some(entry.id.as_str()),
+                    });
+                }
+            }
+        }
+        let draft = self.ai_session_draft.clone();
+        let draft_program = draft
+            .as_ref()
+            .map(|item| item.agent_program.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| self.ai_settings.agent_program.clone());
+        let draft_reply = draft
+            .as_ref()
+            .map(|item| item.reply_mode.clone())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| self.ai_settings.reply_mode.clone());
+        let draft_stream = draft
+            .as_ref()
+            .map(|item| item.agent_stream)
+            .unwrap_or(self.ai_settings.agent_stream);
+        let draft_permission = draft
+            .as_ref()
+            .map(|item| item.permission.clone())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| self.ai_settings.permission.clone());
+        let draft_mode = draft
+            .as_ref()
+            .map(|item| item.session_mode.clone())
+            .unwrap_or_else(default_session_mode);
+        let agent_name = self
+            .ai_agents
+            .iter()
+            .find(|agent| agent.program.to_string_lossy() == draft_program)
+            .map(|agent| agent.name.clone())
+            .unwrap_or_else(|| "未选择".to_string());
+        let permissions = self
+            .ai_agents
+            .iter()
+            .find(|agent| agent.program.to_string_lossy() == draft_program)
+            .map(|agent| agent.permission_values.clone())
+            .unwrap_or_default();
+        let session_permission = draft_permission;
+        let mut agent_buttons = div().flex().flex_wrap().gap_2();
+        for (index, agent) in self.ai_agents.iter().enumerate() {
+            let active = agent.program.to_string_lossy() == draft_program;
+            let program = agent.program.to_string_lossy().to_string();
+            let args = join_args_line(&agent.default_args);
+            let stream_args = join_args_line(&agent.stream_args);
+            let stream_supported = !agent.stream_args.is_empty();
+            let permission = agent.permission_values.first().cloned().unwrap_or_default();
+            let allowed = agent.permission_values.clone();
+            let label = format!("{}（{}）", agent.name, if agent.verified { "已核对" } else { "参数待确认" });
+            agent_buttons = agent_buttons.child(
+                div()
+                    .id(ElementId::Name(format!("ai-agent:{index}").into()))
+                    .aria_label(agent.name.clone())
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .text_xs()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some(draft) = this.ai_session_draft.as_mut() {
+                            draft.agent_program = program.clone();
+                            draft.agent_args = args.clone();
+                            draft.stream_args = stream_args.clone();
+                            if !stream_supported {
+                                draft.agent_stream = false;
+                            }
+                            if draft.permission.trim().is_empty() {
+                                draft.permission = permission.clone();
+                            }
+                            if !allowed.is_empty() && !allowed.contains(&draft.permission) {
+                                draft.permission = permission.clone();
+                            }
+                        }
+                        if let Some(state) = this.ai_args_input.as_ref() {
+                            state.update(cx, |state, cx| state.set_value(&args, window, cx));
+                        }
+                        if let Some(state) = this.ai_stream_args_input.as_ref() {
+                            state.update(cx, |state, cx| state.set_value(&stream_args, window, cx));
+                        }
+                        cx.notify();
+                    }))
+                    .child(label),
+            );
+        }
+        let mut session_permission_chips = div().flex().flex_wrap().gap_2();
+        for value in std::iter::once(String::new()).chain(permissions.iter().cloned()) {
+            let label = if value.is_empty() { "跟随默认".to_string() } else { value.clone() };
+            let active = session_permission == value;
+            let value = value.clone();
+            session_permission_chips = session_permission_chips.child(
+                div()
+                    .id(ElementId::Name(format!("ai-session-perm:{label}").into()))
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .text_xs()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(draft) = this.ai_session_draft.as_mut() {
+                            draft.permission = value.clone();
+                        }
+                        cx.notify();
+                    }))
+                    .child(label),
+            );
+        }
+        let mut reply_chips = div().flex().gap_2();
+        for (value, label) in [
+            ("stdout", "标准输出 REPLY"),
+            ("mcp", "MCP 直接发送"),
+            ("none", "仅记录"),
+        ] {
+            let active = draft_reply == value;
+            let value = value.to_string();
+            reply_chips = reply_chips.child(
+                div()
+                    .id(ElementId::Name(format!("ai-mode:{value}").into()))
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .text_xs()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(draft) = this.ai_session_draft.as_mut() {
+                            draft.reply_mode = value.clone();
+                            if value != "stdout" {
+                                draft.agent_stream = false;
+                            }
+                        }
+                        cx.notify();
+                    }))
+                    .child(label),
+            );
+        }
+        let reply_hint = if draft_reply != "stdout" {
+            Some(
+                "qoder 无头模式拿不到 MCP 工具，自动回复请选「标准输出 REPLY」".to_string(),
+            )
+        } else {
+            None
+        };
+        let selected_title = selected
+            .as_ref()
+            .and_then(|username| self.sessions.iter().find(|session| &session.username == username))
+            .map(|session| session.display_name.clone())
+            .unwrap_or_else(|| "未选择会话".to_string());
+        let project_dir = selected
+            .as_ref()
+            .map(|username| self.ai_project_dir(username));
+        let session_store = self.ai_session_store.clone().unwrap_or_default();
+        let current_session = session_store.current.clone();
+        let mut session_chips = div().flex().flex_wrap().gap_1();
+        for (index, entry) in session_store.sessions.iter().enumerate() {
+            let active = current_session.as_deref() == Some(entry.id.as_str());
+            let id = entry.id.clone();
+            let label = format!("#{}", index + 1);
+            let directory = project_dir.clone();
+            session_chips = session_chips.child(
+                div()
+                    .id(ElementId::Name(format!("ai-session-pick:{id}").into()))
+                    .aria_label(if entry.started { "已使用会话" } else { "新会话" })
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .text_xs()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(directory) = directory.as_ref()
+                            && let Some(store) = this.ai_session_store.as_mut()
+                        {
+                            wechat_watch::set_current_session(directory, store, &id);
+                            this.ai_agent_session = Some(id.clone());
+                            if let Some(username) = this.ai_selected.clone() {
+                                this.ai_session_cache.insert(username, store.clone());
+                            }
+                        }
+                        this.ai_transcript_sig = None;
+                        this.ai_load_transcript();
+                        cx.notify();
+                    }))
+                    .child(label),
+            );
+        }
+        if session_store.sessions.is_empty() {
+            session_chips = session_chips.child(
+                div()
+                    .text_xs()
+                    .text_color(ui_color(0x8a8a8a))
+                    .child("默认新建"),
+            );
+        }
+        let mut session_mode_chips = div().flex().gap_2();
+        for (value, label) in [("persistent", "延续会话"), ("fresh", "每次新建")] {
+            let active = draft_mode == value;
+            let value = value.to_string();
+            session_mode_chips = session_mode_chips.child(
+                div()
+                    .id(ElementId::Name(format!("ai-session-mode:{value}").into()))
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .text_xs()
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(draft) = this.ai_session_draft.as_mut() {
+                            draft.session_mode = value.clone();
+                        }
+                        cx.notify();
+                    }))
+                    .child(label),
+            );
+        }
+        let args_input = self
+            .ai_args_input
+            .as_ref()
+            .map(|state| Input::new(state).w_full().aria_label("Agent 参数").into_any_element())
+            .unwrap_or_else(|| div().into_any_element());
+        let stream_args_input = self
+            .ai_stream_args_input
+            .as_ref()
+            .map(|state| {
+                Input::new(state)
+                    .w_full()
+                    .aria_label("常驻参数")
+                    .into_any_element()
+            })
+            .unwrap_or_else(|| div().into_any_element());
+        let stream_toggle = {
+            let active = draft_stream;
+            div()
+                .id("ai-stream-toggle")
+                .aria_label("常驻 agent")
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .border_1()
+                .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
+                .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                .text_xs()
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, window, cx| {
+                    let program = this
+                        .ai_session_draft
+                        .as_ref()
+                        .map(|draft| draft.agent_program.clone())
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| this.ai_settings.agent_program.clone());
+                    let stream_args = this
+                        .ai_agents
+                        .iter()
+                        .find(|agent| agent.program.to_string_lossy() == program)
+                        .map(|agent| join_args_line(&agent.stream_args))
+                        .unwrap_or_default();
+                    if let Some(draft) = this.ai_session_draft.as_mut() {
+                        draft.agent_stream = !draft.agent_stream;
+                        if draft.agent_stream {
+                            draft.reply_mode = "stdout".to_string();
+                            if draft.stream_args.trim().is_empty() {
+                                draft.stream_args = stream_args.clone();
+                            }
+                        }
+                        let value = draft.stream_args.clone();
+                        if let Some(state) = this.ai_stream_args_input.as_ref() {
+                            state.update(cx, |state, cx| {
+                                state.set_value(&value, window, cx)
+                            });
+                        }
+                    }
+                    cx.notify();
+                }))
+                .child(if active { "常驻：开" } else { "常驻：关" })
+                .into_any_element()
+        };
+        let prompt_input = self
+            .ai_prompt_input
+            .as_ref()
+            .map(|state| Input::new(state).w_full().aria_label("会话提示词").into_any_element())
+            .unwrap_or_else(|| div().into_any_element());
+        let transcript = if self.ai_transcript.is_empty() {
+            div()
+                .flex_1()
+                .min_h_0()
+                .p_4()
+                .text_sm()
+                .text_color(ui_color(0x9ca3af))
+                .child("暂无对话记录；收到新消息后会显示思考、工具调用和回复")
+                .into_any_element()
+        } else {
+            let mut list = div().flex().flex_col().gap_3().w_full();
+            for (index, entry) in self.ai_transcript.iter().enumerate() {
+                list = list.child(self.ai_transcript_row(entry, index, cx));
+            }
+            div()
+                .id("ai-transcript")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .track_scroll(&self.ai_transcript_scroll)
+                .child(list)
+                .into_any_element()
+        };
+        let detail_wxid = selected.clone().unwrap_or_else(|| "未选择会话".to_string());
+        let agent_session = self
+            .ai_agent_session
+            .as_ref()
+            .map(|id| {
+                let short: String = id.chars().take(8).collect();
+                format!("agent 会话 {short}")
+            })
+            .unwrap_or_else(|| "未选择 agent 会话".to_string());
+        let settings_label = if self.ai_settings_open {
+            "取消"
+        } else {
+            "会话设置"
+        };
+        let header_directory = project_dir.clone();
+        let ai_detail_header: AnyElement = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .min_w_0()
+                    .child(div().text_lg().truncate().child(selected_title.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ui_color(0x8a8a8a))
+                            .truncate()
+                            .child(format!("wxid: {detail_wxid} · {agent_session}")),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("ai-settings-toggle")
+                            .aria_label(settings_label)
+                            .px_3()
+                            .py_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(ui_color(0xe5e7eb))
+                            .bg(ui_color(0xffffff))
+                            .text_xs()
+                            .cursor_pointer()
+                            .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if this.ai_settings_open {
+                                    this.ai_cancel_settings(window, cx);
+                                } else {
+                                    this.ai_open_settings(window, cx);
+                                }
+                            }))
+                            .child(settings_label),
+                    )
+                    .when_some(header_directory, |this, directory| {
+                        this.child(
+                            div()
+                                .id("ai-open-project")
+                                .aria_label("打开项目目录")
+                                .px_3()
+                                .py_1()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(ui_color(0xe5e7eb))
+                                .bg(ui_color(0xffffff))
+                                .text_xs()
+                                .cursor_pointer()
+                                .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.ai_open_project(&directory);
+                                    cx.notify();
+                                }))
+                                .child("打开目录"),
+                        )
+                    }),
+            )
+            .into_any_element();
+        let settings_footer: AnyElement = div()
+            .flex()
+            .justify_end()
+            .gap_2()
+            .child(
+                div()
+                    .id("ai-settings-cancel")
+                    .aria_label("取消修改")
+                    .px_4()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(ui_color(0xe5e7eb))
+                    .bg(ui_color(0xffffff))
+                    .text_xs()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(ui_color(0xf3f3f3)))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.ai_cancel_settings(window, cx);
+                    }))
+                    .child("取消"),
+            )
+            .child(
+                div()
+                    .id("ai-settings-save")
+                    .aria_label("保存会话设置")
+                    .px_4()
+                    .py_1()
+                    .rounded_md()
+                    .bg(ui_color(0x07b75b))
+                    .text_xs()
+                    .text_color(ui_color(0xffffff))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(ui_color(0x06a552)))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.ai_commit_settings(cx);
+                    }))
+                    .child("保存"),
+            )
+            .into_any_element();
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(ui_color(0xf7f7f7))
+            .child(
+                div()
+                    .px_5()
+                    .py_3()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(ui_color(0xe5e7eb))
+                    .bg(ui_color(0xffffff))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(div().text_lg().child("AI 自动回复")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .id("ai-start")
+                                    .aria_label("启动自动回复")
+                                    .test_support()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .bg(ui_color(0x07b75b))
+                                    .text_xs()
+                                    .text_color(ui_color(0xffffff))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ai_start(cx);
+                                        cx.notify();
+                                    }))
+                                    .child("启动"),
+                            )
+                            .child(
+                                div()
+                                    .id("ai-stop")
+                                    .aria_label("停止自动回复")
+                                    .test_support()
+                                    .px_3()
+                                    .py_1()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(ui_color(0xe5e7eb))
+                                    .bg(ui_color(0xffffff))
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ai_stop();
+                                        cx.notify();
+                                    }))
+                                    .child("停止"),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .w(px(280.))
+                            .h_full()
+                            .border_r_1()
+                            .border_color(ui_color(0xe5e7eb))
+                            .bg(ui_color(0xffffff))
+                            .flex()
+                            .flex_col()
+                            .child(div().px_4().py_3().text_xs().text_color(ui_color(0x8a8a8a)).child("会话"))
+                            .child(if rows.is_empty() {
+                                div()
+                                    .p_4()
+                                    .text_xs()
+                                    .text_color(ui_color(0x8a8a8a))
+                                    .child("暂无会话")
+                                    .into_any_element()
+                            } else {
+                                let sizes = Rc::new(
+                                    rows.iter()
+                                        .map(|row| {
+                                            let height = match row {
+                                                AiTreeRow::Chat { .. } => 52.,
+                                                AiTreeRow::Agent { .. } => 34.,
+                                            };
+                                            size(px(280.), px(height))
+                                        })
+                                        .collect::<Vec<_>>(),
+                                );
+                                let scroll = self.ai_sessions_scroll.clone();
+                                let rows = Rc::new(rows);
+                                let list = gpui_kit::base::v_virtual_list(
+                                    cx.entity(),
+                                    "ai-sessions",
+                                    sizes,
+                                    move |this, range, _, cx| {
+                                        range
+                                            .map(|index| this.ai_tree_row(&rows[index], cx))
+                                            .collect()
+                                    },
+                                )
+                                .track_scroll(&scroll)
+                                .into_any_element();
+                                div()
+                                    .size_full()
+                                    .flex()
+                                    .overflow_hidden()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .h_full()
+                                            .overflow_hidden()
+                                            .child(list),
+                                    )
+                                    .child(Self::scroll_rail("ai-sessions-rail", &scroll))
+                                    .into_any_element()
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("ai-detail")
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .when(self.ai_settings_open, |this| this.overflow_y_scroll())
+                            .p_5()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(ai_detail_header)
+                            .when(self.ai_settings_open, |this| this
+                            .child(
+                                div()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(ui_color(0xe5e7eb))
+                                    .bg(ui_color(0xffffff))
+                                    .p_4()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .child(div().text_sm().child("执行 Agent"))
+                                    .child(agent_buttons)
+                                    .child(
+                                        div()
+                                            .id("ai-agent-custom")
+                                            .aria_label("选择自定义 agent")
+                                            .px_3()
+                                            .py_1()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(ui_color(0xe5e7eb))
+                                            .bg(ui_color(0xffffff))
+                                            .text_xs()
+                                            .cursor_pointer()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                let receiver = cx.prompt_for_paths(PathPromptOptions {
+                                                    files: true,
+                                                    directories: false,
+                                                    multiple: false,
+                                                    prompt: Some("选择 agent 可执行文件".into()),
+                                                });
+                                                let task = cx.spawn(async move |this, cx| {
+                                                    if let Ok(Ok(Some(paths))) = receiver.await
+                                                        && let Some(path) = paths.into_iter().next()
+                                                    {
+                                                        let _ = this.update(cx, |this, cx| {
+                                                            if let Some(draft) =
+                                                                this.ai_session_draft.as_mut()
+                                                            {
+                                                                draft.agent_program = path
+                                                                    .to_string_lossy()
+                                                                    .to_string();
+                                                                draft.agent_stream = false;
+                                                            }
+                                                            cx.notify();
+                                                        });
+                                                    }
+                                                });
+                                                this.remote_tasks.push(task);
+                                            }))
+                                            .child("自定义…"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .truncate()
+                                            .text_color(ui_color(0x8a8a8a))
+                                            .child(format!("当前：{agent_name} · {draft_program}")),
+                                    )
+                                    .child(args_input)
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(stream_toggle),
+                                    )
+                                    .child(if draft_stream {
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(ui_color(0x8a8a8a))
+                                                    .child("常驻参数"),
+                                            )
+                                            .child(stream_args_input)
+                                            .into_any_element()
+                                    } else {
+                                        div().into_any_element()
+                                    })
+                                    .child(div().text_xs().text_color(ui_color(0x8a8a8a)).child("回复方式"))
+                                    .child(reply_chips)
+                                    .child(if let Some(hint) = reply_hint {
+                                        div()
+                                            .text_xs()
+                                            .text_color(ui_color(0xd97706))
+                                            .child(hint)
+                                            .into_any_element()
+                                    } else {
+                                        div().into_any_element()
+                                    })
+                            )
+                            .child(
+                                div()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(ui_color(0xe5e7eb))
+                                    .bg(ui_color(0xffffff))
+                                    .p_4()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .child(format!("会话设置 · {selected_title}")),
+                                            )
+                                    )
+                                    .child(prompt_input)
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .text_xs()
+                                                    .text_color(ui_color(0x8a8a8a))
+                                                    .truncate()
+                                                    .child(
+                                                        project_dir
+                                                            .as_ref()
+                                                            .map(|path| path.display().to_string())
+                                                            .unwrap_or_default(),
+                                                    ),
+                                            )
+                                            .when_some(project_dir.clone(), |this, directory| {
+                                                this.child(
+                                                    div()
+                                                        .id("ai-open-project")
+                                                        .aria_label("打开项目目录")
+                                                        .px_2()
+                                                        .py_1()
+                                                        .rounded_md()
+                                                        .border_1()
+                                                        .border_color(ui_color(0xe5e7eb))
+                                                        .text_xs()
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                                            this.ai_open_project(&directory);
+                                                            cx.notify();
+                                                        }))
+                                                        .child("打开目录"),
+                                                )
+                                            }),
+                                    )
+                                    .child(div().text_xs().text_color(ui_color(0x8a8a8a)).child("权限"))
+                                    .child(session_permission_chips)
+                                    .child(div().text_xs().text_color(ui_color(0x8a8a8a)).child("会话"))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(session_mode_chips)
+                                            .when_some(project_dir.clone(), |this, directory| {
+                                                this.child(
+                                                    div()
+                                                        .id("ai-new-session")
+                                                        .aria_label("新建会话")
+                                                        .px_2()
+                                                        .py_1()
+                                                        .rounded_md()
+                                                        .border_1()
+                                                        .border_color(ui_color(0xe5e7eb))
+                                                        .text_xs()
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                                            let mut store = this
+                                                                .ai_session_store
+                                                                .take()
+                                                                .unwrap_or_default();
+                                                            wechat_watch::add_session(
+                                                                &directory, &mut store,
+                                                            );
+                                                            this.ai_agent_session = store.current.clone();
+                                                            if let Some(username) = this.ai_selected.clone() {
+                                                                this.ai_session_cache.insert(username, store.clone());
+                                                            }
+                                                            this.ai_session_store = Some(store);
+                                                            this.ai_status =
+                                                                "已新建会话，下条消息使用".to_string();
+                                                            this.ai_transcript_sig = None;
+                                                            this.ai_load_transcript();
+                                                            cx.notify();
+                                                        }))
+                                                        .child("新建会话"),
+                                                )
+                                            }),
+                                    )
+                                    .child(session_chips),
+                            )
+                            .child(settings_footer))
+                            .when(!self.ai_settings_open, |this| this
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(ui_color(0xe5e7eb))
+                                    .bg(ui_color(0xffffff))
+                                    .p_4()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(div().text_sm().child("对话记录"))
+                                    .child(transcript),
+                            )),
+                    ),
+            )
+            .into_any_element()
+    }
+
+}
+
 impl Render for WeChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let desired_theme = if dark_mode() {
@@ -5918,6 +9383,13 @@ impl Render for WeChatApp {
         }
         if self.view == View::Moments {
             self.ensure_sns_input(window, cx);
+            self.ensure_sns_compose_input(window, cx);
+            if self.sns_clear_pending {
+                self.sns_clear_pending = false;
+                if let Some(state) = self.sns_compose_input.clone() {
+                    state.update(cx, |state, cx| state.set_value("", window, cx));
+                }
+            }
         }
         let content = match self.view {
             View::Chat => self.render_chat(window, cx),
@@ -5927,6 +9399,7 @@ impl Render for WeChatApp {
             View::MiniPrograms => self.render_mini_programs(cx),
             View::Payments => self.render_payments(cx),
             View::Search => self.render_search(cx),
+            View::AiReply => self.render_ai_reply(window, cx),
         };
         let title_bar = gpui_kit::component::TitleBar::new()
             .bg(ui_color(0xf2f2f2))
@@ -6742,6 +10215,19 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn renders_ai_reply_page(cx: &mut TestAppContext) {
+        let (_temp, account) = fixture_copy();
+        let (handle, view) = open_app(cx, account);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |app, cx| app.switch_view(View::AiReply, cx));
+            window.render_frame(cx);
+            assert!(window.try_find("ai-start").is_some());
+            assert!(window.try_find("ai-stop").is_some());
+        })
+        .expect("update window");
+    }
+
+    #[gpui_kit::test]
     fn renders_text_quote_link_media_and_system_rows(cx: &mut TestAppContext) {
         let (_temp, account) = fixture_copy();
         let (handle, view) = open_app(cx, account);
@@ -7129,6 +10615,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_mention_query_and_targets() {
+        assert_eq!(mention_query("你好 @"), Some((7, String::new())));
+        assert_eq!(mention_query("@井芹"), Some((0, "井芹".to_string())));
+        assert_eq!(mention_query("@井芹 你好"), None);
+        let members = vec![
+            ("wxid_a".to_string(), "井芹仁菜".to_string()),
+            ("wxid_b".to_string(), "井芹仁菜的爹".to_string()),
+        ];
+        assert_eq!(
+            mention_targets("@井芹仁菜 你好", &members),
+            vec!["wxid_a".to_string()]
+        );
+        assert_eq!(
+            mention_targets("@井芹仁菜的爹 你好", &members),
+            vec!["wxid_b".to_string()]
+        );
+        assert!(mention_targets("@不存在", &members).is_empty());
+    }
+
+    #[test]
     fn replaces_text_emoji_tokens_with_images() {
         assert!(contains_emoji_token("你好[惊讶]"));
         assert!(contains_emoji_token("你好[偷笑]"));
@@ -7250,9 +10756,12 @@ mod tests {
             media_root: None,
             key_store: None,
             broker: None,
+            native_bridge: None,
             remote_cdn: false,
             theme: "light".to_string(),
             minimize_to_tray: true,
+            accounts: Vec::new(),
+            native_actions: true,
         };
         cx.update(|cx| view.update(cx, |app, _| app.apply_settings(settings, false)));
         cx.update(|cx| {

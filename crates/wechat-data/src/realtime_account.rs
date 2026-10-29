@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use wechat_broker::Cell as RealtimeCell;
+use wechat_broker::{BrokerClient, BrokerOptions, Cell as RealtimeCell};
 
 use crate::decode::decode_message_content;
 use crate::error::{DataError, Result};
@@ -14,8 +14,8 @@ use crate::general::{
     parse_finder_lives, parse_mini_programs, parse_payments, FinderLive, MiniProgram, PaymentItem,
 };
 use crate::model::{
-    AccountInfo, AvatarImage, Contact, ContactItem, Message, MessageCursor, MessageKind,
-    MessagePage, Session,
+    AccountInfo, AvatarImage, Contact, ContactItem, Message, MessageAfterPage, MessageCursor,
+    MessageKind, MessagePage, Session,
 };
 use crate::sns::{parse_sns_post, SnsPost};
 use crate::search::{SearchHit, SearchPage};
@@ -34,6 +34,7 @@ struct RealtimeShard {
 
 pub struct RealtimeAccountStore {
     _host: RealtimeHost,
+    native_actions: bool,
     account: String,
     account_dir: PathBuf,
     self_username: String,
@@ -64,6 +65,24 @@ impl RealtimeAccountStore {
         key_hex: &str,
         raw_key: bool,
         account_hint: Option<&str>,
+    ) -> Result<Self> {
+        Self::open_with_options(
+            broker_exe,
+            db_storage,
+            key_hex,
+            raw_key,
+            account_hint,
+            &BrokerOptions::default(),
+        )
+    }
+
+    pub fn open_with_options(
+        broker_exe: &Path,
+        db_storage: &Path,
+        key_hex: &str,
+        raw_key: bool,
+        account_hint: Option<&str>,
+        options: &BrokerOptions,
     ) -> Result<Self> {
         let root = std::fs::canonicalize(db_storage)?;
         if !root.is_dir() {
@@ -103,7 +122,8 @@ impl RealtimeAccountStore {
         if let Some(directory) = &snapshot {
             broker_roots.push(directory.path().to_path_buf());
         }
-        let host = RealtimeHost::spawn(broker_exe, &broker_roots)?;
+        let native_actions = options.native_bridge.is_some();
+        let host = RealtimeHost::spawn_with_options(broker_exe, &broker_roots, options)?;
         let snapshot_root = snapshot.as_ref().map(|directory| directory.path());
         let timing = std::env::var_os("WCE_TIMING").is_some();
         let started = std::time::Instant::now();
@@ -236,6 +256,7 @@ impl RealtimeAccountStore {
 
         Ok(Self {
             _host: host,
+            native_actions,
             account,
             account_dir: root,
             self_username,
@@ -249,6 +270,25 @@ impl RealtimeAccountStore {
             _snapshot: snapshot,
             group_name_cache: std::sync::Mutex::new(HashMap::new()),
         })
+    }
+
+    pub fn native_actions(&self) -> bool {
+        self.native_actions
+    }
+
+    pub fn action_client(&self) -> ActionClient {
+        let account_directory = self
+            .account_dir
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.account.clone());
+        ActionClient {
+            client: self._host.client(),
+            account: self.account.clone(),
+            self_wxid: self.self_username.clone(),
+            account_directory,
+            account_dir: self.account_dir.clone(),
+        }
     }
 
     pub fn account(&self) -> &str {
@@ -277,6 +317,60 @@ impl RealtimeAccountStore {
             account_dir: self.account_dir.display().to_string(),
             message_shards: self.shards.iter().map(|shard| shard.name.clone()).collect(),
         }
+    }
+
+    pub fn group_members(&self, chatroom: &str) -> Result<Vec<(String, String)>> {
+        let Some(buffer) = self.group_ext_buffer(chatroom)? else {
+            return Ok(Vec::new());
+        };
+        Ok(crate::group::parse_group_members(&buffer))
+    }
+
+    pub fn group_nicknames(
+        &self,
+        chatroom: &str,
+        senders: &[String],
+    ) -> Result<HashMap<String, String>> {
+        let Some(buffer) = self.group_ext_buffer(chatroom)? else {
+            return Ok(HashMap::new());
+        };
+        Ok(crate::group::parse_group_nickname_map(&buffer, senders))
+    }
+
+    pub fn contact_db_path(&self) -> Option<PathBuf> {
+        let mut roots = vec![self.account_dir.clone()];
+        if let Some(root) = self.account_root() {
+            roots.push(root.to_path_buf());
+        }
+        for root in roots {
+            if let Some(path) = find_db(&root, "contact", "contact.db") {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    fn group_ext_buffer(&self, chatroom: &str) -> Result<Option<Vec<u8>>> {
+        let Some(contact) = &self.contact else {
+            return Ok(None);
+        };
+        if !table_names(contact)
+            .iter()
+            .any(|table| table.eq_ignore_ascii_case("chat_room"))
+        {
+            return Ok(None);
+        }
+        let page = contact.query_with_params(
+            "SELECT ext_buffer FROM chat_room WHERE username = ?1 LIMIT 1",
+            &[RealtimeCell::Text(chatroom.to_string())],
+            1,
+        )?;
+        for row in page.rows_as_maps() {
+            if let Some(SqlValue::Blob(bytes)) = row.get("ext_buffer") {
+                return Ok(Some(bytes.clone()));
+            }
+        }
+        Ok(None)
     }
 
     pub fn list_contact_directory(&self, keyword: &str, limit: usize) -> Result<Vec<ContactItem>> {
@@ -1004,6 +1098,75 @@ impl RealtimeAccountStore {
         })
     }
 
+    pub fn load_messages_after(
+        &self,
+        username: &str,
+        after: Option<&MessageCursor>,
+        limit: usize,
+    ) -> Result<MessageAfterPage> {
+        let username = username.trim();
+        let limit = limit.clamp(1, 500);
+        if username.is_empty() {
+            return Ok(MessageAfterPage {
+                messages: Vec::new(),
+                has_more: false,
+                next_after: after.cloned(),
+            });
+        }
+        let tasks: Vec<(&RealtimeShard, String)> = self
+            .shards
+            .iter()
+            .filter_map(|shard| {
+                resolve_table_name(&shard.tables, username).map(|table| (shard, table))
+            })
+            .collect();
+        let results: Vec<Result<Vec<Message>>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = tasks
+                .iter()
+                .map(|(shard, table)| {
+                    scope.spawn(move || query_shard_realtime_after(shard, table, after, limit + 1))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect()
+        });
+        let mut all = Vec::new();
+        let mut any_extra = false;
+        for result in results {
+            let mut rows = result?;
+            if rows.len() > limit {
+                any_extra = true;
+            }
+            all.append(&mut rows);
+        }
+        all.sort_by(|left, right| {
+            left.create_time
+                .cmp(&right.create_time)
+                .then_with(|| left.sort_seq.cmp(&right.sort_seq))
+                .then_with(|| left.local_id.cmp(&right.local_id))
+                .then_with(|| left.shard.cmp(&right.shard))
+        });
+        let has_more = any_extra || all.len() > limit;
+        all.truncate(limit);
+        self.attach_sender_display_names(username, &mut all);
+        let next_after = all
+            .last()
+            .map(|message| MessageCursor {
+                create_time: message.create_time,
+                sort_seq: message.sort_seq,
+                local_id: message.local_id,
+                shard: message.shard.clone(),
+            })
+            .or_else(|| after.cloned());
+        Ok(MessageAfterPage {
+            messages: all,
+            has_more,
+            next_after,
+        })
+    }
+
     pub fn load_avatars(&self, usernames: &[String]) -> Result<HashMap<String, AvatarImage>> {
         let mut result = HashMap::new();
         let Some(db) = &self.head_image else {
@@ -1438,6 +1601,161 @@ fn query_shard_realtime(
     Ok(output)
 }
 
+fn query_shard_realtime_after(
+    shard: &RealtimeShard,
+    table: &str,
+    after: Option<&MessageCursor>,
+    limit: usize,
+) -> Result<Vec<Message>> {
+    let columns = shard_columns(shard, table)?;
+    if !columns.contains("local_id") {
+        return Ok(Vec::new());
+    }
+
+    let local_id = "m.local_id";
+    let server_id = if columns.contains("server_id") {
+        "m.server_id"
+    } else {
+        "0"
+    };
+    let create_time = if columns.contains("create_time") {
+        "m.create_time"
+    } else {
+        "0 + 0"
+    };
+    let sort_seq = if columns.contains("sort_seq") {
+        "m.sort_seq"
+    } else {
+        "0 + 0"
+    };
+    let local_type = if columns.contains("local_type") {
+        "m.local_type"
+    } else {
+        "0"
+    };
+    let message_content = if columns.contains("message_content") {
+        "m.message_content"
+    } else {
+        "NULL"
+    };
+    let compress_content = if columns.contains("compress_content") {
+        "m.compress_content"
+    } else {
+        "NULL"
+    };
+    let real_sender_id = if columns.contains("real_sender_id") {
+        "m.real_sender_id"
+    } else {
+        "NULL"
+    };
+    let packed_info = if columns.contains("packed_info_data") {
+        "m.packed_info_data"
+    } else {
+        "NULL"
+    };
+    let name2id = name2id_table(&shard.tables);
+    let (join, sender_username) = match &name2id {
+        Some(name) if columns.contains("real_sender_id") => (
+            format!(
+                "LEFT JOIN {} n ON n.rowid = m.real_sender_id",
+                quote_ident(name)
+            ),
+            "n.user_name",
+        ),
+        _ => (String::new(), "NULL"),
+    };
+    let has_sort_seq = columns.contains("sort_seq");
+    let (where_clause, order_clause, limit_placeholder) = if has_sort_seq {
+        (
+            if after.is_some() {
+                "WHERE (m.sort_seq, m.local_id) > (?1, ?2)"
+            } else {
+                ""
+            }
+            .to_string(),
+            "ORDER BY m.sort_seq ASC, m.local_id ASC".to_string(),
+            if after.is_some() { "?3" } else { "?1" },
+        )
+    } else {
+        (
+            if after.is_some() {
+                "WHERE (m.create_time, m.sort_seq, m.local_id) > (?1, ?2, ?3)"
+            } else {
+                ""
+            }
+            .to_string(),
+            format!("ORDER BY {create_time} ASC, {sort_seq} ASC, {local_id} ASC"),
+            if after.is_some() { "?4" } else { "?1" },
+        )
+    };
+    let sql = format!(
+        "SELECT {local_id} AS local_id, {server_id} AS server_id, \
+                {create_time} AS create_time, {sort_seq} AS sort_seq, \
+                {local_type} AS local_type, {message_content} AS message_content, \
+                {compress_content} AS compress_content, {real_sender_id} AS real_sender_id, \
+                {packed_info} AS packed_info, {sender_username} AS sender_username \
+         FROM {} m {join} {where_clause} {order_clause} LIMIT {limit_placeholder}",
+        quote_ident(table)
+    );
+    let mut parameters: Vec<RealtimeCell> = Vec::new();
+    if let Some(cursor) = after {
+        if has_sort_seq {
+            parameters.push(RealtimeCell::Integer(cursor.sort_seq));
+            parameters.push(RealtimeCell::Integer(cursor.local_id));
+        } else {
+            parameters.push(RealtimeCell::Integer(cursor.create_time));
+            parameters.push(RealtimeCell::Integer(cursor.sort_seq));
+            parameters.push(RealtimeCell::Integer(cursor.local_id));
+        }
+    }
+    parameters.push(RealtimeCell::Integer(limit as i64));
+
+    let page = shard.db.query_with_params(&sql, &parameters, limit)?;
+    let mut output = Vec::new();
+    let mut seen: HashSet<(i64, i64, i64)> = HashSet::new();
+    for row in page.rows_as_maps() {
+        let local_id_value = cell_i64(&row, "local_id");
+        let server_id_value = cell_i64(&row, "server_id");
+        let create_time_value = cell_i64(&row, "create_time");
+        let sort_seq_value = cell_i64(&row, "sort_seq");
+        let local_type_value = cell_i64(&row, "local_type");
+        let message_value = cell_value(&row, "message_content");
+        let compress_value = cell_value(&row, "compress_content");
+        let compress_ref = if compress_value.is_null() {
+            None
+        } else {
+            Some(&compress_value)
+        };
+        let real_sender_id_value = cell_opt_i64(&row, "real_sender_id");
+        let packed_value = cell_value(&row, "packed_info");
+        let sender_username_value = cell_text(&row, "sender_username");
+
+        if !seen.insert((create_time_value, sort_seq_value, local_id_value)) {
+            continue;
+        }
+
+        let content = decode_message_content(compress_ref, &message_value);
+        let media_md5 = crate::media_index::extract_md5_from_packed_info(&packed_value);
+        output.push(Message {
+            local_id: local_id_value,
+            server_id: server_id_value,
+            create_time: create_time_value,
+            sort_seq: sort_seq_value,
+            local_type: local_type_value,
+            kind: MessageKind::from_local_type(local_type_value),
+            sender_username: sender_username_value,
+            sender_display_name: String::new(),
+            is_sent: shard.self_rowid.is_some() && shard.self_rowid == real_sender_id_value,
+            body: None,
+            content,
+            media_md5: (!media_md5.is_empty()).then_some(media_md5),
+            shard: shard.name.clone(),
+            table: table.to_string(),
+        });
+    }
+    Ok(output)
+}
+
 fn open_db(
     host: &RealtimeHost,
     path: &Path,
@@ -1542,7 +1860,10 @@ fn resolve_self_rowid(
 fn account_candidates(account: &str) -> Vec<String> {
     let mut output = vec![account.to_string()];
     if let Some((prefix, suffix)) = account.rsplit_once('_') {
-        if !prefix.is_empty() && suffix.chars().all(|character| character.is_ascii_digit()) {
+        if !prefix.is_empty()
+            && suffix.len() <= 8
+            && suffix.chars().all(|character| character.is_ascii_alphanumeric())
+        {
             output.push(prefix.to_string());
         }
     }
@@ -1596,4 +1917,210 @@ fn cell_opt_i64(row: &BTreeMap<String, SqlValue>, name: &str) -> Option<i64> {
 
 fn cell_value(row: &BTreeMap<String, SqlValue>, name: &str) -> SqlValue {
     row.get(name).cloned().unwrap_or(SqlValue::Null)
+}
+
+fn native_completed(value: &serde_json::Value, action: &str) -> Result<()> {
+    let Some(log) = value
+        .get("result")
+        .and_then(|result| result.get("log"))
+    else {
+        return Ok(());
+    };
+    match log.get("completion_success").and_then(|flag| flag.as_bool()) {
+        None | Some(true) => Ok(()),
+        Some(false) => {
+            let field = |name: &str| log.get(name).and_then(|item| item.as_u64()).unwrap_or(0);
+            Err(DataError::Action(format!(
+                "{action} did not complete (stage {}, status {}, native_status {})",
+                field("stage"),
+                field("status"),
+                field("native_status")
+            )))
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ActionClient {
+    client: BrokerClient,
+    account: String,
+    self_wxid: String,
+    account_directory: String,
+    account_dir: PathBuf,
+}
+
+impl ActionClient {
+    pub fn send_text(&self, recipient: &str, text: &str) -> Result<serde_json::Value> {
+        let value = self.client.action(
+            "message.send_text",
+            &self.account,
+            &self.account_directory,
+            recipient,
+            text,
+            false,
+        )?;
+        native_completed(&value, "message.send_text")?;
+        Ok(value)
+    }
+
+    pub fn send_image(&self, recipient: &str, path: &str) -> Result<serde_json::Value> {
+        self.send_attachment("message.send_image", recipient, path)
+    }
+
+    pub fn send_file(&self, recipient: &str, path: &str) -> Result<serde_json::Value> {
+        self.send_attachment("message.send_file", recipient, path)
+    }
+
+    pub fn send_emoticon(&self, recipient: &str, path: &str) -> Result<serde_json::Value> {
+        self.send_attachment("message.send_emoticon", recipient, path)
+    }
+
+    pub fn send_voice(
+        &self,
+        recipient: &str,
+        path: &str,
+        duration_ms: u32,
+    ) -> Result<serde_json::Value> {
+        self.send_attachment(
+            "message.send_voice",
+            recipient,
+            &format!("{path}\u{1f}{duration_ms}"),
+        )
+    }
+
+    fn send_attachment(
+        &self,
+        action: &str,
+        recipient: &str,
+        payload: &str,
+    ) -> Result<serde_json::Value> {
+        let mut accounts = vec![self.self_wxid.clone()];
+        if let Some((prefix, suffix)) = self.self_wxid.rsplit_once('_') {
+            if !prefix.is_empty()
+                && suffix.len() <= 8
+                && suffix.chars().all(|character| character.is_ascii_alphanumeric())
+            {
+                accounts.push(prefix.to_string());
+            }
+        }
+        let mut failure = None;
+        for account in accounts {
+            let value = self.client.action(
+                action,
+                &account,
+                &self.account_directory,
+                recipient,
+                payload,
+                false,
+            )?;
+            match native_completed(&value, action) {
+                Ok(()) => return Ok(value),
+                Err(error) => failure = Some(error),
+            }
+        }
+        Err(failure.unwrap_or_else(|| DataError::Action(format!("{action} failed"))))
+    }
+
+    pub fn send_at_text(
+        &self,
+        recipient: &str,
+        text: &str,
+        members: &str,
+    ) -> Result<serde_json::Value> {
+        Ok(self.client.action(
+            "message.send_at_text",
+            &self.self_wxid,
+            &self.account_directory,
+            recipient,
+            &format!("{members}\u{1f}{text}"),
+            false,
+        )?)
+    }
+
+    pub fn like_moments(&self, feed_id: u64, user: &str) -> Result<serde_json::Value> {
+        Ok(self.client.action(
+            "moments.like",
+            &self.self_wxid,
+            &self.account_directory,
+            &feed_id.to_string(),
+            &format!("0\u{1f}{user}"),
+            false,
+        )?)
+    }
+
+    pub fn comment_image_moments(
+        &self,
+        feed_id: u64,
+        user: &str,
+        image: &str,
+    ) -> Result<serde_json::Value> {
+        Ok(self.client.action(
+            "moments.comment_image",
+            &self.self_wxid,
+            &self.account_directory,
+            &feed_id.to_string(),
+            &format!("{user}\u{1f}{image}"),
+            false,
+        )?)
+    }
+
+    pub fn publish_moments(
+        &self,
+        content: &str,
+        images: &[String],
+        visibility: u32,
+    ) -> Result<serde_json::Value> {
+        let recipient = self.account_dir.display().to_string();
+        let payload = format!(
+            "{visibility}\u{1f}{content}\u{1f}{}\u{1f}\u{1f}",
+            images.join("\u{1e}")
+        );
+        Ok(self.client.action(
+            "moments.publish",
+            &self.self_wxid,
+            &self.account_directory,
+            &recipient,
+            &payload,
+            false,
+        )?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::find_key_for_db_storage_with_account;
+
+    #[test]
+    #[ignore]
+    fn lists_group_members_from_store() {
+        let root = std::env::var_os("WECHAT_REALTIME_ROOT")
+            .map(PathBuf::from)
+            .expect("root");
+        let broker = std::env::var_os("WCE_SELF_BROKER")
+            .map(PathBuf::from)
+            .expect("broker");
+        let key_store = std::env::var_os("WECHAT_KEY_STORE")
+            .map(PathBuf::from)
+            .expect("key store");
+        let chatroom = std::env::var("WECHAT_TEST_CHATROOM")
+            .unwrap_or_else(|_| "42979783184@chatroom".to_string());
+        let (key, raw, _) = find_key_for_db_storage_with_account(&key_store, &root).expect("key");
+        let store = RealtimeAccountStore::open_with_options(
+            &broker,
+            &root,
+            &key,
+            raw,
+            None,
+            &BrokerOptions::default(),
+        )
+        .expect("store");
+        let members = store.group_members(&chatroom).expect("members");
+        eprintln!(
+            "{} members: {:?}",
+            members.len(),
+            members.iter().take(8).collect::<Vec<_>>()
+        );
+        assert!(!members.is_empty());
+    }
 }

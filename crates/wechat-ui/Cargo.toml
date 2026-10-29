@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 wechat-data = { path = "../wechat-data" }
+wechat-watch = { path = "../wechat-watch" }
 chrono = { workspace = true }
 gpui-kit = { workspace = true }
 serde = { workspace = true }

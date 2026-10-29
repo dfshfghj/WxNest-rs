@@ -17,6 +17,9 @@ pub enum DataError {
     #[error("decode: {0}")]
     Decode(String),
 
+    #[error("action: {0}")]
+    Action(String),
+
     #[error("broker: {0}")]
     Broker(#[from] wechat_broker::BrokerError),
 }
