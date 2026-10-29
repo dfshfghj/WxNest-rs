@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[[bin]]
-name = "wechat-mcp"
-path = "src/main.rs"
+[lib]
+name = "wechat_mcp"
+path = "src/lib.rs"
 
 [dependencies]
 wechat-data = { path = "../wechat-data" }

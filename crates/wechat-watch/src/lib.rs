@@ -7,8 +7,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use wechat_data::{
-    find_key_for_db_storage_with_account, parse_message_body, BrokerOptions, Message, MessageCursor,
-    MessageKind, MessageQuery, RealtimeAccountStore,
+    find_key_for_db_storage_with_account, parse_message_body, BrokerOptions, Message,
+    MessageCursor, MessageKind, MessageQuery, RealtimeAccountStore,
 };
 
 mod media;
@@ -364,18 +364,49 @@ pub fn detect_agents() -> Vec<DetectedAgent> {
         });
     }
     let path_candidates = [
-        ("claude", &["claude.exe", "claude.cmd", "claude.bat"][..],
-         vec!["-p".into(), "--permission-mode".into(), "{permission}".into(), "{prompt}".into()],
-         vec!["bypassPermissions".into(), "acceptEdits".into(), "default".into(), "plan".into(), "dontAsk".into(), "auto".into()]),
-        ("codex", &["codex.exe", "codex.cmd", "codex.bat"][..],
-         vec!["exec".into(), "-s".into(), "danger-full-access".into(), "-a".into(), "never".into(), "{prompt}".into()],
-         Vec::new()),
-        ("gemini", &["gemini.exe", "gemini.cmd", "gemini.bat"][..],
-         vec!["-p".into(), "{prompt}".into(), "--yolo".into()],
-         Vec::new()),
-        ("cursor-agent", &["cursor-agent.exe", "cursor-agent.cmd", "cursor-agent.bat"][..],
-         vec!["-p".into(), "{prompt}".into(), "--force".into()],
-         Vec::new()),
+        (
+            "claude",
+            &["claude.exe", "claude.cmd", "claude.bat"][..],
+            vec![
+                "-p".into(),
+                "--permission-mode".into(),
+                "{permission}".into(),
+                "{prompt}".into(),
+            ],
+            vec![
+                "bypassPermissions".into(),
+                "acceptEdits".into(),
+                "default".into(),
+                "plan".into(),
+                "dontAsk".into(),
+                "auto".into(),
+            ],
+        ),
+        (
+            "codex",
+            &["codex.exe", "codex.cmd", "codex.bat"][..],
+            vec![
+                "exec".into(),
+                "-s".into(),
+                "danger-full-access".into(),
+                "-a".into(),
+                "never".into(),
+                "{prompt}".into(),
+            ],
+            Vec::new(),
+        ),
+        (
+            "gemini",
+            &["gemini.exe", "gemini.cmd", "gemini.bat"][..],
+            vec!["-p".into(), "{prompt}".into(), "--yolo".into()],
+            Vec::new(),
+        ),
+        (
+            "cursor-agent",
+            &["cursor-agent.exe", "cursor-agent.cmd", "cursor-agent.bat"][..],
+            vec!["-p".into(), "{prompt}".into(), "--force".into()],
+            Vec::new(),
+        ),
     ];
     for (name, files, default_args, permission_values) in path_candidates {
         if let Some(program) = find_program(files) {
@@ -510,8 +541,9 @@ pub fn run(config_path: &Path, once: bool) -> Result<(), String> {
 }
 
 fn open_store(config: &WatchConfig) -> Result<RealtimeAccountStore, String> {
-    let (key, raw_key, _) = find_key_for_db_storage_with_account(&config.key_store, &config.account_root)
-        .map_err(|error| format!("read key store failed: {error}"))?;
+    let (key, raw_key, _) =
+        find_key_for_db_storage_with_account(&config.key_store, &config.account_root)
+            .map_err(|error| format!("read key store failed: {error}"))?;
     let wants_stdout = if config.sessions.iter().any(|session| session.enabled) {
         config
             .sessions
@@ -705,22 +737,67 @@ fn trigger(
     }
     let started = Instant::now();
     let turn = now_secs();
-    transcript_push(config, &session.username, &session_id, turn, "user", &messages_text, "", false);
+    transcript_push(
+        config,
+        &session.username,
+        &session_id,
+        turn,
+        "user",
+        &messages_text,
+        "",
+        false,
+    );
     let stream = spec.stream && spec.reply_mode == "stdout";
     let timeout = Duration::from_secs(config.agent.timeout_secs.max(10));
     let (exit, stdout, stderr, args, stream_session) = if stream {
         let mut record = |event: StreamRecord| match event {
             StreamRecord::Thinking(text) => {
-                transcript_push(config, &session.username, &session_id, turn, "thinking", &text, "", false);
+                transcript_push(
+                    config,
+                    &session.username,
+                    &session_id,
+                    turn,
+                    "thinking",
+                    &text,
+                    "",
+                    false,
+                );
             }
             StreamRecord::Assistant(text) => {
-                transcript_push(config, &session.username, &session_id, turn, "assistant", &text, "", false);
+                transcript_push(
+                    config,
+                    &session.username,
+                    &session_id,
+                    turn,
+                    "assistant",
+                    &text,
+                    "",
+                    false,
+                );
             }
             StreamRecord::ToolUse { name, input } => {
-                transcript_push(config, &session.username, &session_id, turn, "tool", &input, &name, false);
+                transcript_push(
+                    config,
+                    &session.username,
+                    &session_id,
+                    turn,
+                    "tool",
+                    &input,
+                    &name,
+                    false,
+                );
             }
             StreamRecord::ToolResult { text, error } => {
-                transcript_push(config, &session.username, &session_id, turn, "tool_result", &text, "", error);
+                transcript_push(
+                    config,
+                    &session.username,
+                    &session_id,
+                    turn,
+                    "tool_result",
+                    &text,
+                    "",
+                    error,
+                );
             }
         };
         match run_stream(
@@ -738,7 +815,16 @@ fn trigger(
         ) {
             Ok(value) => value,
             Err(error) => {
-                transcript_push(config, &session.username, &session_id, turn, "error", &error, "", true);
+                transcript_push(
+                    config,
+                    &session.username,
+                    &session_id,
+                    turn,
+                    "error",
+                    &error,
+                    "",
+                    true,
+                );
                 if let Some(found) = session_store
                     .sessions
                     .iter_mut()
@@ -793,7 +879,10 @@ fn trigger(
         let result = match action {
             OutputAction::Text(text) => {
                 reply = Some(text.clone());
-                store.action_client().send_text(&session.username, &text).map(|_| "text".to_string())
+                store
+                    .action_client()
+                    .send_text(&session.username, &text)
+                    .map(|_| "text".to_string())
             }
             OutputAction::Image(path) => store
                 .action_client()
@@ -1023,12 +1112,7 @@ fn run_stream(
             .unwrap_or(false);
     if !reusable {
         agents.remove(&session.username);
-        let agent = StreamAgent::spawn(
-            &spec.program,
-            &args,
-            project_dir,
-            fingerprint.clone(),
-        )?;
+        let agent = StreamAgent::spawn(&spec.program, &args, project_dir, fingerprint.clone())?;
         agents.insert(session.username.clone(), agent);
     }
     let agent = agents
@@ -1132,9 +1216,11 @@ fn replace_managed_block(existing: &str, block: &str) -> String {
     if existing.trim().is_empty() {
         block.to_string()
     } else {
-        format!("{existing}
+        format!(
+            "{existing}
 
-{block}")
+{block}"
+        )
     }
 }
 
@@ -1270,12 +1356,7 @@ fn format_messages(
             let separator = if content.is_empty() { "" } else { "  " };
             output.push_str(&format!(
                 "[{}] {} [{}]: {}{}{}\n",
-                message.create_time,
-                label,
-                kind,
-                content,
-                separator,
-                annotation
+                message.create_time, label, kind, content, separator, annotation
             ));
         } else {
             output.push_str(&format!(
@@ -1286,7 +1367,6 @@ fn format_messages(
     }
     output
 }
-
 
 fn summarize_content(message: &Message) -> String {
     if matches!(
@@ -1452,7 +1532,8 @@ fn write_status(config: &WatchConfig, busy: bool) {
 }
 
 fn load_config(path: &Path) -> Result<WatchConfig, String> {
-    let text = std::fs::read_to_string(path).map_err(|error| format!("read config failed: {error}"))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("read config failed: {error}"))?;
     serde_json::from_str(&text).map_err(|error| format!("parse config failed: {error}"))
 }
 
@@ -1566,7 +1647,10 @@ mod tests {
 
     #[test]
     fn fills_placeholders() {
-        let value = fill("a {session} b {prompt}", &[("session", "x"), ("prompt", "y")]);
+        let value = fill(
+            "a {session} b {prompt}",
+            &[("session", "x"), ("prompt", "y")],
+        );
         assert_eq!(value, "a x b y");
     }
 
@@ -1616,9 +1700,16 @@ mod tests {
         assert!(set_current_session(&dir, &mut store, &first.id));
         let loaded = load_session_store(&dir);
         assert_eq!(loaded.current.as_deref(), Some(first.id.as_str()));
-        assert_eq!(effective_session(&loaded).map(|item| item.id), Some(first.id.clone()));
-        std::fs::write(dir.join(".wce-session"), "legacy-id
-").unwrap();
+        assert_eq!(
+            effective_session(&loaded).map(|item| item.id),
+            Some(first.id.clone())
+        );
+        std::fs::write(
+            dir.join(".wce-session"),
+            "legacy-id
+",
+        )
+        .unwrap();
         let migrated = load_session_store(&dir);
         assert!(migrated.sessions.iter().any(|item| item.id == "legacy-id"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1628,7 +1719,10 @@ mod tests {
     fn session_ids_are_uuid_shaped() {
         let value = new_session_id();
         assert_eq!(value.len(), 36);
-        assert_eq!(value.split('-').map(str::len).collect::<Vec<_>>(), vec![8, 4, 4, 4, 12]);
+        assert_eq!(
+            value.split('-').map(str::len).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12]
+        );
         assert!(value.contains("-4"));
     }
 
@@ -1640,10 +1734,13 @@ old
 <!-- wce:end -->
 user
 ";
-        let updated = replace_managed_block(text, "<!-- wce:begin -->
+        let updated = replace_managed_block(
+            text,
+            "<!-- wce:begin -->
 new
 <!-- wce:end -->
-");
+",
+        );
         assert!(updated.contains("new"));
         assert!(updated.contains("user"));
         assert!(!updated.contains("old"));

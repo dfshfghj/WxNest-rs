@@ -107,7 +107,13 @@ impl MediaContext {
                 message.create_time,
                 keys,
             ),
-            None => load_message_image_cached(&self.root, chat, &md5, message.local_id, message.create_time),
+            None => load_message_image_cached(
+                &self.root,
+                chat,
+                &md5,
+                message.local_id,
+                message.create_time,
+            ),
         };
         match image.and_then(|image| self.save(&md5, &image.data, &image.media_type)) {
             Some(path) => Some(format!("[图片] md5={md5} 本地={path}")),
@@ -162,7 +168,9 @@ impl MediaContext {
         };
         let mut path = None;
         if !file_md5.is_empty() {
-            let index = self.index.get_or_insert_with(|| MediaIndex::build(&self.root));
+            let index = self
+                .index
+                .get_or_insert_with(|| MediaIndex::build(&self.root));
             path = index.resolve("file", &file_md5).map(display);
         }
         if path.is_none() && !title.is_empty() {
@@ -185,7 +193,9 @@ impl MediaContext {
         if md5.is_empty() {
             return Some("[视频] 未找到 md5".to_string());
         }
-        let index = self.index.get_or_insert_with(|| MediaIndex::build(&self.root));
+        let index = self
+            .index
+            .get_or_insert_with(|| MediaIndex::build(&self.root));
         let path = index.resolve("video", &md5).map(display);
         let thumb = index.resolve("video_thumb", &md5).map(display);
         match (path, thumb) {

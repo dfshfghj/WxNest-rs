@@ -123,7 +123,8 @@ impl StreamAgent {
             .stdin
             .as_mut()
             .ok_or_else(|| "agent stdin unavailable".to_string())?;
-        writeln!(stdin, "{message}").map_err(|error| format!("write agent stdin failed: {error}"))?;
+        writeln!(stdin, "{message}")
+            .map_err(|error| format!("write agent stdin failed: {error}"))?;
         stdin
             .flush()
             .map_err(|error| format!("flush agent stdin failed: {error}"))?;
@@ -184,8 +185,7 @@ impl StreamAgent {
                             .get("is_error")
                             .and_then(|item| item.as_bool())
                             .unwrap_or(false)
-                            || value.get("subtype").and_then(|item| item.as_str())
-                                == Some("error");
+                            || value.get("subtype").and_then(|item| item.as_str()) == Some("error");
                         self.last_used = Instant::now();
                         if failed {
                             return Err(format!("agent error: {}", text.trim()));
@@ -223,7 +223,10 @@ fn record_assistant(value: &serde_json::Value, record: &mut dyn FnMut(StreamReco
         return;
     };
     for block in blocks {
-        let kind = block.get("type").and_then(|item| item.as_str()).unwrap_or("");
+        let kind = block
+            .get("type")
+            .and_then(|item| item.as_str())
+            .unwrap_or("");
         match kind {
             "thinking" => {
                 if let Some(text) = block.get("thinking").and_then(|item| item.as_str()) {
@@ -331,7 +334,8 @@ fn kill_on_close_job() -> Option<windows_sys::Win32::Foundation::HANDLE> {
     (*handle != 0).then_some(*handle as _)
 }
 
-fn tail_suffix(tail: &str) -> String {    let trimmed = tail.trim();
+fn tail_suffix(tail: &str) -> String {
+    let trimmed = tail.trim();
     if trimmed.is_empty() {
         String::new()
     } else {

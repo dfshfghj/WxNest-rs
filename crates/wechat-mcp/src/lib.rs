@@ -8,8 +8,9 @@ use serde_json::{json, Value};
 use wechat_data::BrokerOptions;
 use wechat_data::{
     extract_image_md5, fetch_emoticon_media, load_emoji_image, load_message_image,
-    load_message_image_cached, parse_emoji_reference, ActionClient, ImageKeys, KeyStore, MediaIndex, Message, MessageBody,
-    MessageCursor, MessageKind, MessageQuery, RealtimeAccountStore,
+    load_message_image_cached, parse_emoji_reference, ActionClient, ImageKeys, KeyStore,
+    MediaIndex, Message, MessageBody, MessageCursor, MessageKind, MessageQuery,
+    RealtimeAccountStore,
 };
 
 struct McpState {
@@ -24,17 +25,7 @@ struct McpState {
     decrypted: Mutex<HashMap<String, Option<String>>>,
 }
 
-fn main() {
-    match run() {
-        Ok(()) => {}
-        Err(error) => {
-            eprintln!("wechat-mcp: {error}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn run() -> Result<(), String> {
+pub fn run() -> Result<(), String> {
     let config = Config::from_env()?;
     let options = BrokerOptions {
         native_bridge: config.bridge.clone(),
@@ -241,7 +232,11 @@ fn run_tool(state: &McpState, name: &str, args: &Value) -> Result<Value, String>
         }
         "watch_messages" => {
             let username = required_str(args, "username")?;
-            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50).clamp(1, 200) as usize;
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(50)
+                .clamp(1, 200) as usize;
             let timeout = args
                 .get("timeout_seconds")
                 .and_then(Value::as_u64)
@@ -311,11 +306,9 @@ fn run_tool(state: &McpState, name: &str, args: &Value) -> Result<Value, String>
                 .unwrap_or("image")
                 .to_ascii_lowercase();
             let local_id = args.get("local_id").and_then(Value::as_i64).unwrap_or(0);
-            let create_time = args
-                .get("create_time")
-                .and_then(Value::as_i64)
-                .unwrap_or(0);
-            if let Some(path) = decrypt_media(state, &username, &kind, &md5, local_id, create_time) {
+            let create_time = args.get("create_time").and_then(Value::as_i64).unwrap_or(0);
+            if let Some(path) = decrypt_media(state, &username, &kind, &md5, local_id, create_time)
+            {
                 return Ok(json!({ "path": path, "md5": md5, "kind": kind, "source": "local" }));
             }
             if kind == "emoji" {
@@ -329,7 +322,9 @@ fn run_tool(state: &McpState, name: &str, args: &Value) -> Result<Value, String>
                         16 * 1024 * 1024,
                     )
                     .map_err(|error| format!("fetch emoticon failed: {error}"))?;
-                    if let Some(path) = write_media_bytes(state, &md5, &media.data, &media.media_type) {
+                    if let Some(path) =
+                        write_media_bytes(state, &md5, &media.data, &media.media_type)
+                    {
                         return Ok(json!({
                             "path": path,
                             "md5": md5,
@@ -437,7 +432,13 @@ fn latest_cursor(
     username: &str,
 ) -> Result<Option<MessageCursor>, String> {
     let page = account
-        .load_messages(username, &MessageQuery { limit: 1, before: None })
+        .load_messages(
+            username,
+            &MessageQuery {
+                limit: 1,
+                before: None,
+            },
+        )
         .map_err(|error| error.to_string())?;
     Ok(page.messages.last().map(|message| MessageCursor {
         create_time: message.create_time,
@@ -501,7 +502,8 @@ fn export_emoji_remote(state: &McpState, content: &str, md5: &str) -> Option<Str
     if url.is_empty() {
         return None;
     }
-    let media = fetch_emoticon_media(url, aes_key, state.image_keys.as_ref(), 16 * 1024 * 1024).ok()?;
+    let media =
+        fetch_emoticon_media(url, aes_key, state.image_keys.as_ref(), 16 * 1024 * 1024).ok()?;
     let value = write_media_bytes(state, md5, &media.data, &media.media_type);
     if let Ok(mut guard) = state.decrypted.lock() {
         guard.insert(cache_key, value.clone());
@@ -537,7 +539,8 @@ fn decrypt_media(
             None => load_message_image_cached(root, username, md5, local_id, create_time),
         },
     };
-    let value = media.and_then(|image| write_media_bytes(state, md5, &image.data, &image.media_type));
+    let value =
+        media.and_then(|image| write_media_bytes(state, md5, &image.data, &image.media_type));
     if let Ok(mut guard) = state.decrypted.lock() {
         guard.insert(cache_key, value.clone());
     }
@@ -804,7 +807,10 @@ fn tool_definitions() -> Vec<Value> {
         tool(
             "get_cursor",
             "获取会话当前最新消息游标，用于 watch_messages",
-            obj_with_required(vec![("username", string("会话 wxid 或 @chatroom"))], vec!["username"]),
+            obj_with_required(
+                vec![("username", string("会话 wxid 或 @chatroom"))],
+                vec!["username"],
+            ),
         ),
         tool(
             "watch_messages",
@@ -1027,9 +1033,15 @@ impl Config {
         let broker = std::env::var_os("WCE_SELF_BROKER")
             .map(PathBuf::from)
             .or_else(|| {
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(|dir| dir.join("wce-self-broker.exe")))
+                std::env::current_exe().ok().and_then(|exe| {
+                    let dir = exe.parent()?;
+                    let agent = dir.join("wechat-agent.exe");
+                    if agent.is_file() {
+                        return Some(agent);
+                    }
+                    let broker = dir.join("wce-self-broker.exe");
+                    broker.is_file().then_some(broker)
+                })
             })
             .ok_or("WCE_SELF_BROKER is required")?;
         let bridge = std::env::var_os("WCE_NATIVE_BRIDGE")

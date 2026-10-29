@@ -8026,6 +8026,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wechat-agent"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "wce-self-broker",
+ "wechat-mcp",
+ "wechat-watch",
+]
+
+[[package]]
 name = "wechat-broker"
 version = "0.1.0"
 dependencies = [

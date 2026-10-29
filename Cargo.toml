@@ -9,6 +9,7 @@ members = [
     "crates/wechat-ui",
     "crates/wechat-mcp",
     "crates/wechat-watch",
+    "crates/wechat-agent",
 ]
 
 [workspace.dependencies]

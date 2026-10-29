@@ -597,7 +597,10 @@ fn parse_args() -> (
     let mut action_work_dir = std::env::temp_dir().join("wce-native-actions");
     let mut action_timeout = Duration::from_millis(15_000);
 
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    if matches!(args.peek().map(String::as_str), Some("db")) {
+        args.next();
+    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--root" => {
@@ -686,8 +689,7 @@ fn parse_args() -> (
     (roots, port, token, action_mode, native)
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (roots, port, token, action_mode, native) = parse_args();
     if roots.is_empty() {
         eprintln!(

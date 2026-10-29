@@ -1886,7 +1886,9 @@ fn account_candidates(account: &str) -> Vec<String> {
     if let Some((prefix, suffix)) = account.rsplit_once('_') {
         if !prefix.is_empty()
             && suffix.len() <= 8
-            && suffix.chars().all(|character| character.is_ascii_alphanumeric())
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
         {
             output.push(prefix.to_string());
         }
@@ -1944,13 +1946,13 @@ fn cell_value(row: &BTreeMap<String, SqlValue>, name: &str) -> SqlValue {
 }
 
 fn native_completed(value: &serde_json::Value, action: &str) -> Result<()> {
-    let Some(log) = value
-        .get("result")
-        .and_then(|result| result.get("log"))
-    else {
+    let Some(log) = value.get("result").and_then(|result| result.get("log")) else {
         return Ok(());
     };
-    match log.get("completion_success").and_then(|flag| flag.as_bool()) {
+    match log
+        .get("completion_success")
+        .and_then(|flag| flag.as_bool())
+    {
         None | Some(true) => Ok(()),
         Some(false) => {
             let field = |name: &str| log.get(name).and_then(|item| item.as_u64()).unwrap_or(0);
@@ -2022,7 +2024,9 @@ impl ActionClient {
         if let Some((prefix, suffix)) = self.self_wxid.rsplit_once('_') {
             if !prefix.is_empty()
                 && suffix.len() <= 8
-                && suffix.chars().all(|character| character.is_ascii_alphanumeric())
+                && suffix
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
             {
                 accounts.push(prefix.to_string());
             }
@@ -2185,7 +2189,13 @@ mod bench {
         if let Some(first) = sessions.first() {
             let t = Instant::now();
             let page = store
-                .load_messages(&first.username, &MessageQuery { limit: 40, before: None })
+                .load_messages(
+                    &first.username,
+                    &MessageQuery {
+                        limit: 40,
+                        before: None,
+                    },
+                )
                 .expect("messages");
             eprintln!("messages {}: {:?}", page.messages.len(), t.elapsed());
         }

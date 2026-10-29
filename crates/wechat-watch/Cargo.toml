@@ -8,10 +8,6 @@ publish = false
 name = "wechat_watch"
 path = "src/lib.rs"
 
-[[bin]]
-name = "wechat-watch"
-path = "src/main.rs"
-
 [dependencies]
 wechat-data = { path = "../wechat-data" }
 serde = { workspace = true }

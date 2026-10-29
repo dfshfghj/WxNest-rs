@@ -1021,8 +1021,7 @@ mod platform {
             let mut needed = 0u32;
             let mut count = 0u32;
             let mut reasons = 0u32;
-            let mut infos: Vec<RM_PROCESS_INFO> =
-                vec![unsafe { std::mem::zeroed() }; 16];
+            let mut infos: Vec<RM_PROCESS_INFO> = vec![unsafe { std::mem::zeroed() }; 16];
             let mut status = unsafe {
                 RmGetList(
                     session,

@@ -315,7 +315,8 @@ pub fn plan(mode: ActionMode, request: &ActionRequest) -> Result<ActionPlan, Str
     })
 }
 
-pub fn not_implemented(plan: &ActionPlan) -> Value {    json!({
+pub fn not_implemented(plan: &ActionPlan) -> Value {
+    json!({
         "status": "not_implemented",
         "action": plan.action,
         "action_id": plan.action_id,

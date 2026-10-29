@@ -1,0 +1,21 @@
+[package]
+name = "wechat-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "wechat-agent"
+path = "src/main.rs"
+
+[features]
+default = ["sqlcipher"]
+sqlcipher = ["wce-self-broker/sqlcipher"]
+system-sqlcipher = ["wce-self-broker/system-sqlcipher"]
+plain-sqlite = ["wce-self-broker/plain-sqlite"]
+
+[dependencies]
+wechat-mcp = { path = "../wechat-mcp" }
+wechat-watch = { path = "../wechat-watch" }
+wce-self-broker = { path = "../wechat-self-broker", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }

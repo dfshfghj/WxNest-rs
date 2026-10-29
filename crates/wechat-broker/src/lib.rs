@@ -105,6 +105,13 @@ impl BrokerHost {
         let token = hex::encode(token_bytes);
 
         let mut command = Command::new(broker_exe);
+        if broker_exe
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("wechat-agent"))
+        {
+            command.arg("db");
+        }
         command.arg("--port").arg("0").arg("--token").arg(&token);
         for root in roots {
             command.arg("--root").arg(root);

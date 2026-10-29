@@ -35,7 +35,10 @@ pub fn load_group_nickname_map(
     Ok(parse_group_nickname_map(&ext_buffer, sender_usernames))
 }
 
-pub fn load_group_members(contact_db_path: &Path, chatroom_id: &str) -> Result<Vec<(String, String)>> {
+pub fn load_group_members(
+    contact_db_path: &Path,
+    chatroom_id: &str,
+) -> Result<Vec<(String, String)>> {
     let chatroom = chatroom_id.trim();
     if !chatroom.ends_with("@chatroom") || !contact_db_path.is_file() {
         return Ok(Vec::new());
@@ -375,7 +378,6 @@ fn pick_display(strings: &[(u64, String)], target: &str, allowed_fields: &[u64])
 mod tests {
     use super::*;
 
-
     fn varint(mut value: u64) -> Vec<u8> {
         let mut output = Vec::new();
         loop {
@@ -442,4 +444,3 @@ mod tests {
         }
     }
 }
-

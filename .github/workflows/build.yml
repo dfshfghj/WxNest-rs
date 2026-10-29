@@ -53,13 +53,16 @@ jobs:
         run: cargo fmt --all -- --check --config reorder_imports=false,reorder_modules=false
 
       - name: Clippy workspace
-        run: cargo clippy --locked --workspace --exclude wce-self-broker --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --exclude wce-self-broker --exclude wechat-agent --all-targets -- -D warnings
 
       - name: Clippy broker
         run: cargo clippy --locked -p wce-self-broker --no-default-features --features plain-sqlite --all-targets -- -D warnings
 
+      - name: Clippy agent
+        run: cargo clippy --locked -p wechat-agent --no-default-features --features plain-sqlite --all-targets -- -D warnings
+
       - name: Test workspace
-        run: cargo test --locked --workspace --exclude wce-self-broker
+        run: cargo test --locked --workspace --exclude wce-self-broker --exclude wechat-agent
 
   release:
     name: Windows release
@@ -140,6 +143,10 @@ jobs:
           nasm -v
           cargo build --locked --release --workspace
 
+      - name: Build native bridge
+        shell: pwsh
+        run: ./tools/build-bridge.ps1
+
       - name: Save OpenSSL build cache
         if: steps.rust-cache.outputs.cache-hit != 'true' && steps.openssl-cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch
         uses: actions/cache/save@v4
@@ -152,13 +159,18 @@ jobs:
       - name: Verify binaries
         shell: pwsh
         run: |
-          foreach ($name in @('wechat-ui.exe', 'wce-self-broker.exe', 'wechat-mcp.exe', 'wechat-watch.exe')) {
+          foreach ($name in @('wechat-ui.exe', 'wechat-agent.exe')) {
             $path = Join-Path 'target\release' $name
             if (!(Test-Path -LiteralPath $path)) {
               throw "missing $path"
             }
             Get-Item -LiteralPath $path | Select-Object FullName, Length
           }
+          $bridge = 'target\bridge\text_bridge.dll'
+          if (!(Test-Path -LiteralPath $bridge)) {
+            throw "missing $bridge"
+          }
+          Get-Item -LiteralPath $bridge | Select-Object FullName, Length
 
       - name: Package
         shell: pwsh
@@ -166,9 +178,11 @@ jobs:
           $dist = 'dist\wechat-analysis-rs-windows-x86_64'
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
           Copy-Item 'target\release\wechat-ui.exe' $dist
-          Copy-Item 'target\release\wce-self-broker.exe' $dist
-          Copy-Item 'target\release\wechat-mcp.exe' $dist
-          Copy-Item 'target\release\wechat-watch.exe' $dist
+          Copy-Item 'target\release\wechat-agent.exe' $dist
+          Copy-Item 'target\bridge\text_bridge.dll' $dist
+          Copy-Item 'vendor\helper-native\LICENSE' (Join-Path $dist 'LICENSE-helper-noncommercial-1.0.txt')
+          Copy-Item 'vendor\helper-native\THIRD_PARTY_NOTICES.md' $dist
+          Copy-Item 'vendor\helper-native\SOURCE.md' $dist
           Copy-Item 'README.md' $dist
 
       - uses: actions/upload-artifact@v4

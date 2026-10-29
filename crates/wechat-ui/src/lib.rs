@@ -20,7 +20,8 @@ use gpui_kit::{
     point, px, rgb, size, svg,
 };
 use wechat_watch::{
-    detect_agents, AgentConfig as WatchAgentConfig, SessionConfig as WatchSessionConfig, WatchConfig,
+    detect_agents, AgentConfig as WatchAgentConfig, SessionConfig as WatchSessionConfig,
+    WatchConfig,
 };
 use wechat_data::{
     AccountInfo, AccountStore, AvatarImage, ContactItem, FinderLive, ImageKeys, KeyStore, Message,
@@ -311,11 +312,13 @@ fn find_broker(storage: &Path, settings: &AppSettings) -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
+        candidates.push(dir.join("wechat-agent.exe"));
         candidates.push(dir.join("wce-self-broker.exe"));
     }
     if let Some(path) = settings.broker.as_ref() {
         candidates.push(path.clone());
     }
+    candidates.push(storage.join("wechat-agent.exe"));
     candidates.push(storage.join("wce-self-broker.exe"));
     if let Some(path) = std::env::var_os("WCE_SELF_BROKER") {
         candidates.push(PathBuf::from(path));
@@ -329,9 +332,16 @@ fn find_native_bridge(settings: &AppSettings) -> Option<PathBuf> {
     {
         return Some(path.clone());
     }
-    std::env::var_os("WCE_NATIVE_BRIDGE")
+    if let Some(path) = std::env::var_os("WCE_NATIVE_BRIDGE")
         .map(PathBuf::from)
         .filter(|path| path.is_file())
+    {
+        return Some(path);
+    }
+    std::env::current_exe().ok().and_then(|exe| {
+        let path = exe.parent()?.join("text_bridge.dll");
+        path.is_file().then_some(path)
+    })
 }
 
 fn native_bridge_for(settings: &AppSettings) -> Option<PathBuf> {
@@ -578,7 +588,11 @@ fn load_ai_settings() -> AiReplySettings {
         .unwrap_or_default();
     let original = split_args_line(&settings.agent_args);
     let mut cleaned = sanitize_agent_args(original.clone());
-    if settings.sessions.iter().any(|session| session.session_mode != "fresh") {
+    if settings
+        .sessions
+        .iter()
+        .any(|session| session.session_mode != "fresh")
+    {
         cleaned.retain(|value| value != "--no-session-persistence");
     }
     if cleaned.len() != original.len() {
@@ -1379,7 +1393,11 @@ impl WeChatApp {
         }
         if let Some(path) = settings.account_path.clone() {
             for sibling in discover_sibling_accounts(&path) {
-                if !settings.accounts.iter().any(|profile| profile.path == sibling) {
+                if !settings
+                    .accounts
+                    .iter()
+                    .any(|profile| profile.path == sibling)
+                {
                     settings.accounts.push(AccountProfile {
                         path: sibling,
                         key_store: None,
@@ -2231,9 +2249,7 @@ impl WeChatApp {
             return;
         }
         let after = &current[at + 1..];
-        let rest_start = after
-            .find(char::is_whitespace)
-            .unwrap_or(after.len());
+        let rest_start = after.find(char::is_whitespace).unwrap_or(after.len());
         let rest = after[rest_start..].trim_start();
         let mut next = format!("{}@{display}", &current[..at]);
         if !rest.is_empty() {
@@ -2254,8 +2270,7 @@ impl WeChatApp {
             match self.store.as_ref() {
                 Some(Store::Realtime(account)) => {
                     let mut members = account.group_members(username).unwrap_or_default();
-                    let names: Vec<String> =
-                        members.iter().map(|(wxid, _)| wxid.clone()).collect();
+                    let names: Vec<String> = members.iter().map(|(wxid, _)| wxid.clone()).collect();
                     let contacts = account.load_contacts_for(&names).unwrap_or_default();
                     for (wxid, display) in members.iter_mut() {
                         if let Some(contact) = contacts
@@ -3054,7 +3069,11 @@ impl WeChatApp {
             }
         }
         let send_enabled = enabled && has_text && !self.sending;
-        let send_label = if self.sending { "发送中…" } else { "发送" };
+        let send_label = if self.sending {
+            "发送中…"
+        } else {
+            "发送"
+        };
         let send = div()
             .id("send-message")
             .aria_label("发送消息")
@@ -3077,19 +3096,15 @@ impl WeChatApp {
             .cursor_pointer()
             .on_click(cx.listener(|this, _, _, cx| this.send_current_message(cx)))
             .child(send_label);
-        let input_area = div()
-            .min_h(px(54.))
-            .px_3()
-            .pt_2()
-            .child(if enabled {
-                input.unwrap_or_else(|| div().into_any_element())
-            } else {
-                div()
-                    .text_xs()
-                    .text_color(ui_color(0x8a8a8a))
-                    .child(hint.to_string())
-                    .into_any_element()
-            });
+        let input_area = div().min_h(px(54.)).px_3().pt_2().child(if enabled {
+            input.unwrap_or_else(|| div().into_any_element())
+        } else {
+            div()
+                .text_xs()
+                .text_color(ui_color(0x8a8a8a))
+                .child(hint.to_string())
+                .into_any_element()
+        });
         div()
             .px_4()
             .pb_3()
@@ -7365,9 +7380,15 @@ impl WeChatApp {
                 .ai_settings
                 .sessions
                 .iter()
-                .find(|item| item.enabled && current.iter().any(|(username, _)| username == &item.username))
+                .find(|item| {
+                    item.enabled
+                        && current
+                            .iter()
+                            .any(|(username, _)| username == &item.username)
+                })
                 .map(|item| item.username.clone());
-            self.ai_selected = enabled.or_else(|| current.first().map(|(username, _)| username.clone()));
+            self.ai_selected =
+                enabled.or_else(|| current.first().map(|(username, _)| username.clone()));
         }
         self.ai_session_store = self
             .ai_selected
@@ -7408,7 +7429,9 @@ impl WeChatApp {
         #[cfg(target_os = "windows")]
         {
             let _ = std::fs::create_dir_all(directory);
-            let _ = std::process::Command::new("explorer").arg(directory).spawn();
+            let _ = std::process::Command::new("explorer")
+                .arg(directory)
+                .spawn();
         }
     }
 
@@ -7504,9 +7527,7 @@ impl WeChatApp {
         if let Some(username) = self.ai_selected.clone() {
             let setting = self.ai_effective_session(&username);
             if let Some(state) = self.ai_prompt_input.as_ref() {
-                state.update(cx, |state, cx| {
-                    state.set_value(&setting.prompt, window, cx)
-                });
+                state.update(cx, |state, cx| state.set_value(&setting.prompt, window, cx));
             }
             if let Some(state) = self.ai_args_input.as_ref() {
                 state.update(cx, |state, cx| {
@@ -7622,9 +7643,8 @@ impl WeChatApp {
         }
         if self.ai_stream_args_input.is_none() {
             let text = self.ai_settings.stream_args.clone();
-            let state = cx.new(|cx| {
-                InputState::new(window, cx).placeholder("常驻参数（stream-json），一行")
-            });
+            let state = cx
+                .new(|cx| InputState::new(window, cx).placeholder("常驻参数（stream-json），一行"));
             state.update(cx, |state, cx| state.set_value(&text, window, cx));
             self.ai_stream_args_input = Some(state);
         }
@@ -7719,9 +7739,7 @@ impl WeChatApp {
             let duplicated = entry.kind == "assistant"
                 && entries
                     .get(index + 1)
-                    .map(|next| {
-                        next.kind == "final" && next.text.trim() == entry.text.trim()
-                    })
+                    .map(|next| next.kind == "final" && next.text.trim() == entry.text.trim())
                     .unwrap_or(false);
             if !duplicated {
                 deduped.push(entry.clone());
@@ -7746,32 +7764,34 @@ impl WeChatApp {
         if self._ai_transcript_task.is_some() {
             return;
         }
-        let task = cx.spawn(async move |this, cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_millis(1500))
-                .await;
-            let keep = this.update(cx, |this, cx| {
-                if this.view != View::AiReply {
-                    return true;
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(1500))
+                    .await;
+                let keep = this.update(cx, |this, cx| {
+                    if this.view != View::AiReply {
+                        return true;
+                    }
+                    let mut notify = this.ai_load_transcript();
+                    let exited = this
+                        .ai_watcher
+                        .as_mut()
+                        .map(|child| matches!(child.try_wait(), Ok(Some(_))))
+                        .unwrap_or(false);
+                    if exited {
+                        this.ai_watcher = None;
+                        this.ai_status = "watcher 已退出".to_string();
+                        notify = true;
+                    }
+                    if notify {
+                        cx.notify();
+                    }
+                    true
+                });
+                if keep.is_err() {
+                    break;
                 }
-                let mut notify = this.ai_load_transcript();
-                let exited = this
-                    .ai_watcher
-                    .as_mut()
-                    .map(|child| matches!(child.try_wait(), Ok(Some(_))))
-                    .unwrap_or(false);
-                if exited {
-                    this.ai_watcher = None;
-                    this.ai_status = "watcher 已退出".to_string();
-                    notify = true;
-                }
-                if notify {
-                    cx.notify();
-                }
-                true
-            });
-            if keep.is_err() {
-                break;
             }
         });
         self._ai_transcript_task = Some(task);
@@ -7921,10 +7941,11 @@ impl WeChatApp {
         }
         let config_path = Self::ai_watch_config_path();
         if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("创建配置目录失败: {error}"))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("创建配置目录失败: {error}"))?;
         }
-        let text =
-            serde_json::to_string_pretty(&config).map_err(|error| format!("生成配置失败: {error}"))?;
+        let text = serde_json::to_string_pretty(&config)
+            .map_err(|error| format!("生成配置失败: {error}"))?;
         let temp = config_path.with_extension("json.tmp");
         std::fs::write(&temp, text).map_err(|error| format!("写入配置失败: {error}"))?;
         std::fs::rename(&temp, &config_path).map_err(|error| format!("替换配置失败: {error}"))?;
@@ -7946,12 +7967,19 @@ impl WeChatApp {
             self.ai_status = "watcher 已在运行".to_string();
             return;
         }
-        let watcher = std::env::current_exe()
+        let exe_dir = std::env::current_exe()
             .ok()
-            .and_then(|exe| exe.parent().map(|dir| dir.join("wechat-watch.exe")))
-            .filter(|path| path.is_file());
-        let Some(watcher) = watcher else {
-            self.ai_status = "未找到 wechat-watch.exe（应与 wechat-ui.exe 同目录）".to_string();
+            .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        let watcher = exe_dir.as_ref().and_then(|dir| {
+            let agent = dir.join("wechat-agent.exe");
+            if agent.is_file() {
+                return Some((agent, true));
+            }
+            let watch = dir.join("wechat-watch.exe");
+            watch.is_file().then_some((watch, false))
+        });
+        let Some((watcher, watch_subcommand)) = watcher else {
+            self.ai_status = "未找到 wechat-agent.exe（应与 wechat-ui.exe 同目录）".to_string();
             return;
         };
         let wants_stdout = self
@@ -7986,6 +8014,9 @@ impl WeChatApp {
             let _ = std::fs::remove_file(&lock);
         }
         let mut command = std::process::Command::new(&watcher);
+        if watch_subcommand {
+            command.arg("watch");
+        }
         command
             .arg("--config")
             .arg(&config_path)
@@ -8094,7 +8125,13 @@ impl WeChatApp {
                             .rounded_full()
                             .bg(ui_color(accent)),
                     )
-                    .child(div().flex_none().text_xs().text_color(ui_color(accent)).child(label))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_xs()
+                            .text_color(ui_color(accent))
+                            .child(label),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -8216,14 +8253,9 @@ impl WeChatApp {
                     )
                     .into_any_element()
             }
-            "thinking" => self.ai_collapsible_block(
-                "思考".to_string(),
-                0x7c3aed,
-                entry,
-                key,
-                expanded,
-                cx,
-            ),
+            "thinking" => {
+                self.ai_collapsible_block("思考".to_string(), 0x7c3aed, entry, key, expanded, cx)
+            }
             "tool" => self.ai_collapsible_block(
                 if entry.name.is_empty() {
                     "工具".to_string()
@@ -8255,7 +8287,11 @@ impl WeChatApp {
                 let border = if entry.error { 0xfecaca } else { 0xbbf7d0 };
                 let bg = if entry.error { 0xfef2f2 } else { 0xf0fdf4 };
                 let accent = if entry.error { 0xb91c1c } else { 0x15803d };
-                let label = if entry.error { "运行失败" } else { "已发送回复" };
+                let label = if entry.error {
+                    "运行失败"
+                } else {
+                    "已发送回复"
+                };
                 div()
                     .w_full()
                     .flex()
@@ -8286,21 +8322,15 @@ impl WeChatApp {
                                             .child(if entry.error { "✕" } else { "✓" }),
                                     )
                                     .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(ui_color(accent))
-                                            .child(label),
+                                        div().text_xs().text_color(ui_color(accent)).child(label),
                                     )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(ui_color(0x9ca3af))
-                                            .child(if entry.session.len() > 8 {
-                                                entry.session[..8].to_string()
-                                            } else {
-                                                entry.session.clone()
-                                            }),
-                                    ),
+                                    .child(div().text_xs().text_color(ui_color(0x9ca3af)).child(
+                                        if entry.session.len() > 8 {
+                                            entry.session[..8].to_string()
+                                        } else {
+                                            entry.session.clone()
+                                        },
+                                    )),
                             )
                             .child(selectable_text(
                                 &text,
@@ -8360,11 +8390,11 @@ impl WeChatApp {
                             this.ai_save_inputs(cx);
                         }
                         this.ai_selected = Some(select_user.clone());
-                        let store = wechat_watch::load_session_store(
-                            &this.ai_project_dir(&select_user),
-                        );
+                        let store =
+                            wechat_watch::load_session_store(&this.ai_project_dir(&select_user));
                         this.ai_agent_session = store.current.clone();
-                        this.ai_session_cache.insert(select_user.clone(), store.clone());
+                        this.ai_session_cache
+                            .insert(select_user.clone(), store.clone());
                         this.ai_session_store = Some(store);
                         this.ai_load_prompt(window, cx);
                         this.ai_load_transcript();
@@ -8465,7 +8495,9 @@ impl WeChatApp {
                 let current = *current;
                 let viewing = *viewing;
                 div()
-                    .id(ElementId::Name(format!("ai-agent-session:{session_id}").into()))
+                    .id(ElementId::Name(
+                        format!("ai-agent-session:{session_id}").into(),
+                    ))
                     .aria_label(label.clone())
                     .w_full()
                     .h(px(34.))
@@ -8484,7 +8516,8 @@ impl WeChatApp {
                         }
                         this.ai_selected = Some(username.clone());
                         this.ai_agent_session = Some(session_id.clone());
-                        let store = wechat_watch::load_session_store(&this.ai_project_dir(&username));
+                        let store =
+                            wechat_watch::load_session_store(&this.ai_project_dir(&username));
                         this.ai_agent_session = store.current.clone();
                         this.ai_session_store = Some(store);
                         this.ai_load_transcript();
@@ -8547,7 +8580,11 @@ impl WeChatApp {
                         label: format!(
                             "#{} {}",
                             index + 1,
-                            if entry.started { "已开始" } else { "未开始" }
+                            if entry.started {
+                                "已开始"
+                            } else {
+                                "未开始"
+                            }
                         ),
                         current: store.current.as_deref() == Some(entry.id.as_str()),
                         viewing: self.ai_agent_session.as_deref() == Some(entry.id.as_str()),
@@ -8601,7 +8638,15 @@ impl WeChatApp {
             let stream_supported = !agent.stream_args.is_empty();
             let permission = agent.permission_values.first().cloned().unwrap_or_default();
             let allowed = agent.permission_values.clone();
-            let label = format!("{}（{}）", agent.name, if agent.verified { "已核对" } else { "参数待确认" });
+            let label = format!(
+                "{}（{}）",
+                agent.name,
+                if agent.verified {
+                    "已核对"
+                } else {
+                    "参数待确认"
+                }
+            );
             agent_buttons = agent_buttons.child(
                 div()
                     .id(ElementId::Name(format!("ai-agent:{index}").into()))
@@ -8610,8 +8655,16 @@ impl WeChatApp {
                     .py_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
-                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .border_color(if active {
+                        ui_color(0x07b75b)
+                    } else {
+                        ui_color(0xe5e7eb)
+                    })
+                    .bg(if active {
+                        ui_color(0xe4f6ec)
+                    } else {
+                        ui_color(0xffffff)
+                    })
                     .text_xs()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -8642,7 +8695,11 @@ impl WeChatApp {
         }
         let mut session_permission_chips = div().flex().flex_wrap().gap_2();
         for value in std::iter::once(String::new()).chain(permissions.iter().cloned()) {
-            let label = if value.is_empty() { "跟随默认".to_string() } else { value.clone() };
+            let label = if value.is_empty() {
+                "跟随默认".to_string()
+            } else {
+                value.clone()
+            };
             let active = session_permission == value;
             let value = value.clone();
             session_permission_chips = session_permission_chips.child(
@@ -8652,8 +8709,16 @@ impl WeChatApp {
                     .py_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
-                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .border_color(if active {
+                        ui_color(0x07b75b)
+                    } else {
+                        ui_color(0xe5e7eb)
+                    })
+                    .bg(if active {
+                        ui_color(0xe4f6ec)
+                    } else {
+                        ui_color(0xffffff)
+                    })
                     .text_xs()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -8680,8 +8745,16 @@ impl WeChatApp {
                     .py_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
-                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .border_color(if active {
+                        ui_color(0x07b75b)
+                    } else {
+                        ui_color(0xe5e7eb)
+                    })
+                    .bg(if active {
+                        ui_color(0xe4f6ec)
+                    } else {
+                        ui_color(0xffffff)
+                    })
                     .text_xs()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -8697,15 +8770,17 @@ impl WeChatApp {
             );
         }
         let reply_hint = if draft_reply != "stdout" {
-            Some(
-                "qoder 无头模式拿不到 MCP 工具，自动回复请选「标准输出 REPLY」".to_string(),
-            )
+            Some("qoder 无头模式拿不到 MCP 工具，自动回复请选「标准输出 REPLY」".to_string())
         } else {
             None
         };
         let selected_title = selected
             .as_ref()
-            .and_then(|username| self.sessions.iter().find(|session| &session.username == username))
+            .and_then(|username| {
+                self.sessions
+                    .iter()
+                    .find(|session| &session.username == username)
+            })
             .map(|session| session.display_name.clone())
             .unwrap_or_else(|| "未选择会话".to_string());
         let project_dir = selected
@@ -8722,13 +8797,25 @@ impl WeChatApp {
             session_chips = session_chips.child(
                 div()
                     .id(ElementId::Name(format!("ai-session-pick:{id}").into()))
-                    .aria_label(if entry.started { "已使用会话" } else { "新会话" })
+                    .aria_label(if entry.started {
+                        "已使用会话"
+                    } else {
+                        "新会话"
+                    })
                     .px_2()
                     .py_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
-                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .border_color(if active {
+                        ui_color(0x07b75b)
+                    } else {
+                        ui_color(0xe5e7eb)
+                    })
+                    .bg(if active {
+                        ui_color(0xe4f6ec)
+                    } else {
+                        ui_color(0xffffff)
+                    })
                     .text_xs()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -8767,8 +8854,16 @@ impl WeChatApp {
                     .py_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
-                    .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                    .border_color(if active {
+                        ui_color(0x07b75b)
+                    } else {
+                        ui_color(0xe5e7eb)
+                    })
+                    .bg(if active {
+                        ui_color(0xe4f6ec)
+                    } else {
+                        ui_color(0xffffff)
+                    })
                     .text_xs()
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -8783,7 +8878,12 @@ impl WeChatApp {
         let args_input = self
             .ai_args_input
             .as_ref()
-            .map(|state| Input::new(state).w_full().aria_label("Agent 参数").into_any_element())
+            .map(|state| {
+                Input::new(state)
+                    .w_full()
+                    .aria_label("Agent 参数")
+                    .into_any_element()
+            })
             .unwrap_or_else(|| div().into_any_element());
         let stream_args_input = self
             .ai_stream_args_input
@@ -8804,8 +8904,16 @@ impl WeChatApp {
                 .py_1()
                 .rounded_md()
                 .border_1()
-                .border_color(if active { ui_color(0x07b75b) } else { ui_color(0xe5e7eb) })
-                .bg(if active { ui_color(0xe4f6ec) } else { ui_color(0xffffff) })
+                .border_color(if active {
+                    ui_color(0x07b75b)
+                } else {
+                    ui_color(0xe5e7eb)
+                })
+                .bg(if active {
+                    ui_color(0xe4f6ec)
+                } else {
+                    ui_color(0xffffff)
+                })
                 .text_xs()
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -8831,20 +8939,27 @@ impl WeChatApp {
                         }
                         let value = draft.stream_args.clone();
                         if let Some(state) = this.ai_stream_args_input.as_ref() {
-                            state.update(cx, |state, cx| {
-                                state.set_value(&value, window, cx)
-                            });
+                            state.update(cx, |state, cx| state.set_value(&value, window, cx));
                         }
                     }
                     cx.notify();
                 }))
-                .child(if active { "常驻：开" } else { "常驻：关" })
+                .child(if active {
+                    "常驻：开"
+                } else {
+                    "常驻：关"
+                })
                 .into_any_element()
         };
         let prompt_input = self
             .ai_prompt_input
             .as_ref()
-            .map(|state| Input::new(state).w_full().aria_label("会话提示词").into_any_element())
+            .map(|state| {
+                Input::new(state)
+                    .w_full()
+                    .aria_label("会话提示词")
+                    .into_any_element()
+            })
             .unwrap_or_else(|| div().into_any_element());
         let transcript = if self.ai_transcript.is_empty() {
             div()
@@ -9358,7 +9473,6 @@ impl WeChatApp {
             )
             .into_any_element()
     }
-
 }
 
 impl Render for WeChatApp {
