@@ -4,6 +4,7 @@ pub mod account;
 pub mod contact;
 pub mod contacts;
 pub mod decode;
+mod derived_cache;
 pub mod error;
 pub mod general;
 pub mod group;

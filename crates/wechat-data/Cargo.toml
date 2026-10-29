@@ -32,6 +32,8 @@ roxmltree = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
+pbkdf2 = "0.12"
+sha2 = "0.10"
 tempfile = { workspace = true }
 ureq = { workspace = true }
 url = { workspace = true }

@@ -1768,20 +1768,44 @@ fn open_db(
     if force {
         if let Some(snapshot_root) = snapshot_root {
             let copy = snapshot_database(path, db_root, snapshot_root)?;
-            return host.open(&copy, key_hex, raw_key);
+            return open_cached(host, &copy, key_hex, raw_key);
         }
     }
-    match host.open(path, key_hex, raw_key) {
+    match open_cached(host, path, key_hex, raw_key) {
         Ok(database) => Ok(database),
         Err(error) => {
             if let Some(snapshot_root) = snapshot_root {
                 if let Ok(copy) = snapshot_database(path, db_root, snapshot_root) {
-                    return host.open(&copy, key_hex, raw_key);
+                    return open_cached(host, &copy, key_hex, raw_key);
                 }
             }
             Err(error)
         }
     }
+}
+
+fn open_cached(
+    host: &RealtimeHost,
+    path: &Path,
+    key_hex: &str,
+    raw_key: bool,
+) -> Result<RealtimeDatabase> {
+    if raw_key {
+        return host.open(path, key_hex, true);
+    }
+    if let Some(derived) = crate::derived_cache::cached(path) {
+        match host.open(path, &derived, true) {
+            Ok(database) => return Ok(database),
+            Err(_) => crate::derived_cache::invalidate(path, key_hex),
+        }
+    }
+    if let Some(derived) = crate::derived_cache::ensure_derived(path, key_hex) {
+        match host.open(path, &derived, true) {
+            Ok(database) => return Ok(database),
+            Err(_) => crate::derived_cache::invalidate(path, key_hex),
+        }
+    }
+    host.open(path, key_hex, false)
 }
 
 fn snapshot_database(source: &Path, root: &Path, destination_root: &Path) -> Result<PathBuf> {
@@ -2122,5 +2146,48 @@ mod tests {
             members.iter().take(8).collect::<Vec<_>>()
         );
         assert!(!members.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use crate::find_key_for_db_storage_with_account;
+    use std::time::Instant;
+
+    #[test]
+    #[ignore]
+    fn bench_open_store() {
+        let root = std::env::var_os("WECHAT_REALTIME_ROOT")
+            .map(PathBuf::from)
+            .expect("root");
+        let broker = std::env::var_os("WCE_SELF_BROKER")
+            .map(PathBuf::from)
+            .expect("broker");
+        let key_store = std::env::var_os("WECHAT_KEY_STORE")
+            .map(PathBuf::from)
+            .expect("key store");
+        let (key, raw, _) = find_key_for_db_storage_with_account(&key_store, &root).expect("key");
+        let started = Instant::now();
+        let store = RealtimeAccountStore::open_with_options(
+            &broker,
+            &root,
+            &key,
+            raw,
+            None,
+            &BrokerOptions::default(),
+        )
+        .expect("store");
+        eprintln!("open total: {:?}", started.elapsed());
+        let t = Instant::now();
+        let sessions = store.list_sessions(false, false).expect("sessions");
+        eprintln!("sessions {}: {:?}", sessions.len(), t.elapsed());
+        if let Some(first) = sessions.first() {
+            let t = Instant::now();
+            let page = store
+                .load_messages(&first.username, &MessageQuery { limit: 40, before: None })
+                .expect("messages");
+            eprintln!("messages {}: {:?}", page.messages.len(), t.elapsed());
+        }
     }
 }
